@@ -154,13 +154,13 @@ export function Header() {
               <TrendingUp className="w-4 h-4 group-hover:scale-110 transition-transform duration-300" />
               <span>Trending</span>
             </Link>
-            <Link
+            {/* <Link
               href="/news"
               className="flex items-center gap-2 text-white/70 hover:text-pink-500 transition-colors duration-300 font-semibold group"
             >
               <Newspaper className="w-4 h-4 group-hover:scale-110 transition-transform duration-300" />
               <span>News</span>
-            </Link>
+            </Link> */}
           </nav>
 
           {/* Right Section */}
