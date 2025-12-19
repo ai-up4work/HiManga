@@ -24,6 +24,7 @@ import { Header } from "./header";
 import { MobileCommentsOverlay } from "./mobile-comments-overlay";
 import { useBookmarks } from "@/hooks/use-bookmarks";
 import { useAuth } from "@/lib/auth-context";
+import Image from "next/image";
 
 interface MangaReaderProps {
   mangaId: string;
@@ -1287,7 +1288,7 @@ export function MangaReader({
                       {loadingPanels.has(panelNumber) ? (
                         <PanelLoadingPlaceholder panelNumber={panelNumber} />
                       ) : (
-                        <img
+                        <Image
                           src={getOptimizedPanelUrl(panelNumber)}
                           alt={`Panel ${panelNumber}`}
                           className="w-full h-auto"
