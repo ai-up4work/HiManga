@@ -1172,11 +1172,11 @@ export function MangaReader({
             <span className="text-xs font-medium text-center">Comments</span>
           </button>
 
-          <MobileCommentsOverlay
+          {/* <MobileCommentsOverlay
             mangaId={mangaId}
             isOpen={isCommentsOpen}
             onClose={() => setIsCommentsOpen(false)}
-          />
+          /> */}
 
           <div
             ref={scrollContainerRef}
