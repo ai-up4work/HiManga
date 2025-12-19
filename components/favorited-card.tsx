@@ -7,6 +7,7 @@ import type { Manga } from "@/lib/mock-data";
 import { Star, Trash2, BookOpen } from "lucide-react";
 import Link from "next/link";
 import { RatingComponent } from "@/components/rating-component";
+import Image from "next/image";
 
 interface FavoritedCardProps {
   manga: Manga;
@@ -19,7 +20,7 @@ export function FavoritedCard({ manga, onRemove }: FavoritedCardProps) {
       {/* Cover Image */}
       <Link href={`/manga/${manga.id}`} className="block">
         <div className="relative aspect-[3/4] overflow-hidden bg-muted">
-          <img
+          <Image
             src={manga.cover || "/placeholder.svg"}
             alt={manga.title}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"

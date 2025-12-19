@@ -33,6 +33,7 @@ import {
   ChevronRight,
   Sparkles,
 } from "lucide-react";
+import Image from "next/image";
 
 export default function GuildSystemPage() {
   const [activeTab, setActiveTab] = useState("browse");
@@ -766,7 +767,7 @@ export default function GuildSystemPage() {
                   className="flex items-center gap-4 p-4 bg-slate-900/50 rounded-lg border border-slate-700/50 hover:border-purple-500/30 transition-all"
                 >
                   <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-purple-500/40">
-                    <img
+                    <Image
                       src={`https://api.dicebear.com/7.x/adventurer/svg?seed=member-${idx}`}
                       alt={`Member ${idx + 1}`}
                       className="w-full h-full"

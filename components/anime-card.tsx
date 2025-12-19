@@ -7,6 +7,7 @@ import Link from "next/link";
 import { Star, BookOpen, Eye, Lock, Sparkles, TrendingUp } from "lucide-react";
 import { useState } from "react";
 import { RatingComponent } from "./rating-component";
+import Image from "next/image";
 
 interface AnimeCardProps {
   manga: Manga;
@@ -70,7 +71,7 @@ export function AnimeCard({ manga }: AnimeCardProps) {
 
           {/* Image Container - Responsive height */}
           <div className="relative overflow-hidden bg-gradient-to-br from-slate-950 to-slate-900 h-[280px] sm:h-[340px] flex-shrink-0">
-            <img
+            <Image
               src={
                 manga.cover ||
                 "/placeholder.svg?height=340&width=240&query=anime"

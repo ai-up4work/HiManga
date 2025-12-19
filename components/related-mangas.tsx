@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import type { Manga } from "@/lib/mock-data";
 import Link from "next/link";
 import { Star, BookOpen, Eye, TrendingUp, Sparkles, Lock } from "lucide-react";
+import Image from "next/image";
 
 interface RelatedMangasProps {
   mangas: Manga[];
@@ -59,7 +60,7 @@ export function RelatedMangas({ mangas }: RelatedMangasProps) {
                             isLocked ? "" : "group-hover:ring-pink-500/30"
                           }`}
                         >
-                          <img
+                          <Image
                             src={manga.cover || "/placeholder.svg"}
                             alt={manga.title}
                             className={`w-full h-full object-cover transition-transform duration-700 ${

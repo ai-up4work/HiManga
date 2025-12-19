@@ -12,6 +12,7 @@ import { useState, useEffect } from "react";
 import { useNotifications } from "@/lib/notifications-context";
 import { useAuth } from "@/lib/auth-context";
 import { useBookmarks } from "@/hooks/use-bookmarks";
+import Image from "next/image";
 
 interface MangaDetailsHeroProps {
   manga: Manga;
@@ -52,7 +53,7 @@ export function MangaDetailsHero({ manga }: MangaDetailsHeroProps) {
           {/* Cover Image */}
           <div className="flex justify-center md:justify-start">
             <div className="relative w-full max-w-xs group">
-              <img
+              <Image
                 src={manga.cover || "/placeholder.svg"}
                 alt={manga.title}
                 className="w-full rounded-lg shadow-lg shadow-pink-500/20 object-cover aspect-[3/4] group-hover:shadow-xl group-hover:shadow-pink-500/40 transition-all duration-300 border border-white/10"

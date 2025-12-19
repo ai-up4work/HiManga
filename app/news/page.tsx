@@ -18,6 +18,7 @@ import {
   Database,
 } from "lucide-react";
 import { Header } from "@/components/header";
+import Image from "next/image";
 
 const NEWS_CATEGORIES = [
   {
@@ -133,7 +134,7 @@ const NewsCard = React.memo(({ item, index }) => {
                   <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
                 </div>
               )}
-              <img
+              <Image
                 src={imageUrl}
                 alt={item.title}
                 className="w-full h-full object-cover"

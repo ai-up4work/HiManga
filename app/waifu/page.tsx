@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Star, Sparkles, Trophy, Gift, Coins } from "lucide-react";
+import Image from "next/image";
 
 interface WaifuCard {
   id: number;
@@ -208,7 +209,7 @@ export default function GachaSystem() {
                       />
                     ))}
                   </div>
-                  <img
+                  <Image
                     src={newCard.image}
                     alt={newCard.name}
                     className="w-full object-cover rounded-lg mb-4"
@@ -309,7 +310,7 @@ export default function GachaSystem() {
                       />
                     ))}
                   </div>
-                  <img
+                  <Image
                     src={card.image}
                     alt={card.name}
                     className="w-full h-32 object-cover rounded-lg mb-2"

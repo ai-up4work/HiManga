@@ -23,6 +23,7 @@ import {
 import { useState, useEffect, useMemo } from "react";
 import { RatingComponent } from "@/components/rating-component";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 
 export default function LibraryPage() {
   const router = useRouter();
@@ -285,7 +286,7 @@ export default function LibraryPage() {
                         href={`/manga/${manga.id}`}
                         className="flex-shrink-0"
                       >
-                        <img
+                        <Image
                           src={manga.cover || "/placeholder.svg"}
                           alt={manga.title}
                           className="w-24 h-32 object-cover rounded"

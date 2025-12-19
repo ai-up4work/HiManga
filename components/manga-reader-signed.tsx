@@ -26,6 +26,7 @@ import { Header } from "./header";
 import { WATERMARK_CONFIG } from "@/lib/config";
 import { mockComments } from "@/lib/mock-comments";
 import { MobileCommentsOverlay } from "./mobile-comments-overlay";
+import Image from "next/image";
 
 interface MangaReaderProps {
   mangaId: string;
@@ -938,7 +939,7 @@ export function MangaReader({
                     key={panelNumber}
                     className="relative group overflow-hidden shadow-2xl border border-cyan-500/20 hover:border-cyan-400 transition-all hover:shadow-lg hover:shadow-cyan-500/20"
                   >
-                    <img
+                    <Image
                       src={getOptimizedPanelUrl(panelNumber)}
                       alt={`Panel ${panelNumber}`}
                       className="w-full h-auto"

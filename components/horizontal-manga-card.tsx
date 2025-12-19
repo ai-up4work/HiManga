@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card";
 import type { Manga } from "@/lib/mock-data";
 import Link from "next/link";
 import { Star, BookOpen, Eye, TrendingUp, Lock, Sparkles } from "lucide-react";
+import Image from "next/image";
 
 interface HorizontalMangaCardProps {
   manga: Manga;
@@ -40,7 +41,7 @@ export function HorizontalMangaCard({ manga }: HorizontalMangaCardProps) {
               isLocked ? "" : "group-hover:ring-pink-500/30"
             }`}
           >
-            <img
+            <Image
               src={manga.cover || "/placeholder.svg"}
               alt={manga.title}
               className={`w-full h-full object-cover transition-transform duration-700 ${
