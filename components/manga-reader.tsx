@@ -1172,6 +1172,7 @@ export function MangaReader({
             <span className="text-xs font-medium text-center">Comments</span>
           </button>
 
+          {/* Uncomment after comments mobile overlay is ready */}
           {/* <MobileCommentsOverlay
             mangaId={mangaId}
             isOpen={isCommentsOpen}
