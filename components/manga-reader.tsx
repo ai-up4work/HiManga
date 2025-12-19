@@ -1164,20 +1164,20 @@ export function MangaReader({
             </>
           )}
 
-          <button
+          {/* <button
             onClick={() => setIsCommentsOpen(true)}
             className="absolute bottom-[2.5px] left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-1 bg-slate-800/90 border border-slate-700/50 hover:bg-slate-800 hover:border-cyan-400/40 text-slate-100 px-3 py-2 rounded-lg transition-all duration-200 group min-w-[60px]"
           >
             <ChevronUp className="w-4 h-4 text-cyan-400/60 group-hover:text-cyan-400 transition-colors" />
             <span className="text-xs font-medium text-center">Comments</span>
-          </button>
+          </button> */}
 
           {/* Uncomment after comments mobile overlay is ready */}
-          {/* <MobileCommentsOverlay
+          <MobileCommentsOverlay
             mangaId={mangaId}
             isOpen={isCommentsOpen}
             onClose={() => setIsCommentsOpen(false)}
-          /> */}
+          />
 
           <div
             ref={scrollContainerRef}
