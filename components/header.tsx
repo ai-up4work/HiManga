@@ -318,14 +318,14 @@ export function Header() {
               <TrendingUp className="w-5 h-5" />
               <span>Trending</span>
             </Link>
-            <Link
+            {/* <Link
               href="/news"
               className="flex items-center gap-4 text-white/70 hover:text-pink-500 hover:bg-white/5 transition-all duration-300 font-semibold px-4 py-3 rounded-xl"
               onClick={() => setIsMenuOpen(false)}
             >
               <Newspaper className="w-5 h-5" />
               <span>News</span>
-            </Link>
+            </Link> */}
 
             {/* Share Button - Mobile/Tablet */}
             <button
