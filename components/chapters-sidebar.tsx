@@ -81,24 +81,50 @@ export function ChaptersSidebar({
   const [displayedChapters, setDisplayedChapters] = useState(BATCH);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
+  const containerRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-  // ── KEY FIX: Raw data always stored ascending. Sort is applied at render
-  // time only — never stored in state — so sortOrder changes never trigger
-  // a re-fetch, and filteredLengthRef always reflects the full list length
-  // regardless of which sort direction is active.
+  // Raw data always stored ascending. Sort applied at render time only —
+  // never stored in state — so sortOrder changes never trigger a re-fetch.
   const [rawChapters, setRawChapters] = useState<Chapter[]>([]);
   const [readChapters, setReadChapters] = useState<number[]>([]);
   const [usingFallback, setUsingFallback] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [maxAvailableChapter, setMaxAvailableChapter] = useState(0);
 
-  // Refs let the scroll handler read current values without stale closures
-  // and without needing to be re-registered on every render.
+  // Refs for scroll handler — avoids stale closures without re-registering listener
   const filteredLengthRef = useRef(0);
   const isLoadingMoreRef = useRef(false);
+
+  // ── Mobile keyboard fix ───────────────────────────────────────────────────
+  // When the soft keyboard opens on iOS/Android it shrinks the *visual* viewport
+  // but NOT the layout viewport. Elements with position:fixed are sized against
+  // the layout viewport, so they overflow behind the keyboard.
+  //
+  // Fix: listen to visualViewport resize/scroll and manually sync the
+  // container's height and top offset to match the visible area.
+  // On desktop / browsers without visualViewport this is a no-op.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+
+    const update = () => {
+      const el = containerRef.current;
+      if (!el) return;
+      el.style.height = `${vv.height}px`;
+      el.style.top = `${vv.offsetTop}px`;
+    };
+
+    update();
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
+  }, []);
 
   // ── Fetch chapters ONCE ───────────────────────────────────────────────────
   useEffect(() => {
@@ -178,15 +204,12 @@ export function ChaptersSidebar({
       )
     : sortedChapters;
 
-  // Always keep ref in sync before render so scroll handler sees current value
   filteredLengthRef.current = filteredChapters.length;
 
   const chaptersList = filteredChapters.slice(0, displayedChapters);
   const hasMore = displayedChapters < filteredChapters.length;
 
-  // ── Infinite scroll via IntersectionObserver on sentinel ─────────────────
-  // More reliable than scroll distance math: fires whenever the sentinel div
-  // enters the viewport. Re-fires after each batch if sentinel is still visible.
+  // ── Infinite scroll via IntersectionObserver ──────────────────────────────
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   const loadMore = useCallback(() => {
@@ -218,7 +241,7 @@ export function ChaptersSidebar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadMore, isLoading]);
 
-  // Reset pagination & scroll to top on sort/search change
+  // Reset on sort/search change
   useEffect(() => {
     setDisplayedChapters(BATCH);
     isLoadingMoreRef.current = false;
@@ -261,177 +284,190 @@ export function ChaptersSidebar({
   };
 
   return (
-    <div
-      className="w-full flex flex-col bg-gradient-to-b from-slate-900/40 via-slate-900/20 to-transparent backdrop-blur-xl h-dvh lg:h-full lg:relative lg:border-l lg:border-slate-700/50"
-      style={{ maxHeight: "100dvh", position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
-    >
-      {isLoading ? (
-        <ChaptersSidebarSkeleton />
-      ) : (
-        <>
-          {/* Header */}
-          <div className="flex-shrink-0 z-20 p-4 border-b border-cyan-500/20 bg-gradient-to-r from-slate-900/95 to-slate-900/90 backdrop-blur-md">
-            <div className="flex items-center justify-between">
-              <h2 className="font-bold text-sm bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
-                {maxAvailableChapter > 0 ? maxAvailableChapter : totalChapters} Chapters
-              </h2>
-              {readChapters.length > 0 && (
-                <div className="flex items-center gap-1.5 text-xs text-emerald-400/80">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>{readChapters.length} read</span>
-                </div>
-              )}
-            </div>
+    <>
+      <div
+        ref={containerRef}
+        className="w-full flex flex-col bg-gradient-to-b from-slate-900/40 via-slate-900/20 to-transparent backdrop-blur-xl lg:h-full lg:static lg:border-l lg:border-slate-700/50"
+        style={{
+          // Mobile: fixed panel that shrinks with the keyboard via visualViewport
+          // Desktop (lg+): static, height controlled by parent layout
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: "100dvh",
+        }}
+      >
+        {isLoading ? (
+          <ChaptersSidebarSkeleton />
+        ) : (
+          <>
+            {/* Header */}
+            <div className="flex-shrink-0 z-20 p-4 border-b border-cyan-500/20 bg-gradient-to-r from-slate-900/95 to-slate-900/90 backdrop-blur-md">
+              <div className="flex items-center justify-between">
+                <h2 className="font-bold text-sm bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
+                  {maxAvailableChapter > 0 ? maxAvailableChapter : totalChapters} Chapters
+                </h2>
+                {readChapters.length > 0 && (
+                  <div className="flex items-center gap-1.5 text-xs text-emerald-400/80">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>{readChapters.length} read</span>
+                  </div>
+                )}
+              </div>
 
-            <div className="mt-3 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none z-10" />
-              <input
-                ref={searchInputRef}
-                type="search"
-                inputMode="numeric"
-                placeholder="Search chapter..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-9 py-2 text-xs bg-slate-800/50 border border-slate-700/50 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-400/50 focus:bg-slate-800/70 transition-all"
-                style={{ fontSize: "16px" }}
-                autoComplete="off"
-                autoCorrect="off"
-                autoCapitalize="off"
-                spellCheck={false}
-              />
-              {searchQuery && (
-                <button
-                  onClick={clearSearch}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition-colors"
-                  type="button"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-
-            <button
-              onClick={toggleSortOrder}
-              type="button"
-              className="mt-2 w-full flex items-center justify-between px-3 py-2 text-xs bg-slate-800/50 border border-slate-700/50 rounded-lg text-slate-200 hover:bg-slate-800/70 hover:border-cyan-400/50 transition-all active:scale-[0.98]"
-            >
-              <span>Sort: {sortOrder === "desc" ? "Newest First" : "Oldest First"}</span>
-              <ArrowUpDown className="w-3.5 h-3.5 text-cyan-400/60" />
-            </button>
-
-            {searchQuery && (
-              <p className="text-xs text-slate-400 mt-2">
-                Found {filteredChapters.length} chapter
-                {filteredChapters.length !== 1 ? "s" : ""}
-              </p>
-            )}
-          </div>
-
-          {/* Scrollable list */}
-          <div
-            ref={scrollContainerRef}
-            id="chapters-scroll"
-            className="flex-1 overflow-y-auto p-3 space-y-2"
-          >
-            {chaptersList.length > 0 ? (
-              chaptersList.map((chapter) => {
-                const isRead = isChapterRead(chapter.chapter_number);
-                const isLocked = isChapterLocked(chapter.chapter_number);
-                const isCurrent =
-                  parseFloat(String(currentChapter)) === chapter.chapter_number;
-
-                return (
-                  <Link
-                    key={chapter.id}
-                    href={
-                      isLocked
-                        ? "#"
-                        : `/manga/${mangaId}/chapter/${formatChapterForUrl(chapter.chapter_number)}`
-                    }
-                    className={isLocked ? "pointer-events-none" : ""}
-                    onClick={() => !isLocked && markChapterAsRead(chapter.chapter_number)}
-                  >
-                    <div
-                      className={`p-3 my-1 rounded-lg transition-all duration-200 group border flex items-center justify-between active:scale-[0.98] relative overflow-hidden ${
-                        isCurrent
-                          ? "bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border-cyan-400/60 shadow-lg shadow-cyan-500/20"
-                          : isRead
-                          ? "bg-gradient-to-r from-emerald-900/30 to-emerald-800/20 border-emerald-600/50 hover:from-emerald-900/40 hover:to-emerald-800/30 hover:border-emerald-500/60"
-                          : "bg-slate-800/30 border-slate-700/50 hover:bg-slate-800/50 hover:border-cyan-400/40"
-                      } ${isLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                    >
-                      {isRead && !isCurrent && (
-                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-emerald-400 to-emerald-600" />
-                      )}
-                      <div className="flex flex-col gap-0.5 flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className={`text-sm font-semibold ${isRead ? "text-emerald-50" : "text-slate-100"}`}>
-                            {chapter.title || `Chapter ${chapter.chapter_number}`}
-                          </p>
-                          {isRead && (
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                          )}
-                        </div>
-                        <p className={`text-xs ${isRead ? "text-emerald-200/60" : "text-slate-400"}`}>
-                          {new Date(chapter.published_at).toLocaleDateString()}
-                        </p>
-                        {isLocked && (
-                          <p className="text-xs text-amber-400/70 mt-1">Not released yet</p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {isLocked ? (
-                          <Lock className="w-4 h-4 text-amber-500/70" />
-                        ) : (
-                          <ChevronRight
-                            className={`w-4 h-4 transition-colors ${
-                              isRead
-                                ? "text-emerald-400/70 group-hover:text-emerald-300"
-                                : "text-cyan-400/60 group-hover:text-cyan-400"
-                            }`}
-                          />
-                        )}
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })
-            ) : (
-              <div className="text-center py-8">
-                <p className="text-sm text-slate-400">No chapters found</p>
+              <div className="mt-3 relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none z-10" />
+                <input
+                  ref={searchInputRef}
+                  type="search"
+                  inputMode="numeric"
+                  placeholder="Search chapter..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-9 py-2 text-xs bg-slate-800/50 border border-slate-700/50 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-400/50 focus:bg-slate-800/70 transition-all"
+                  // 16px prevents iOS Safari auto-zoom on focus
+                  style={{ fontSize: "16px" }}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                />
                 {searchQuery && (
                   <button
                     onClick={clearSearch}
-                    className="mt-2 text-xs text-cyan-400 hover:text-cyan-300"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition-colors"
+                    type="button"
                   >
-                    Clear search
+                    <X className="w-3.5 h-3.5" />
                   </button>
                 )}
               </div>
-            )}
 
-            {isLoadingMore && (
-              <div className="p-4 text-center">
-                <div className="inline-block w-4 h-4 border-2 border-cyan-400/30 border-t-cyan-400 rounded-full animate-spin" />
-                <p className="text-xs text-slate-400 mt-2">Loading more chapters...</p>
-              </div>
-            )}
+              <button
+                onClick={toggleSortOrder}
+                type="button"
+                className="mt-2 w-full flex items-center justify-between px-3 py-2 text-xs bg-slate-800/50 border border-slate-700/50 rounded-lg text-slate-200 hover:bg-slate-800/70 hover:border-cyan-400/50 transition-all active:scale-[0.98]"
+              >
+                <span>Sort: {sortOrder === "desc" ? "Newest First" : "Oldest First"}</span>
+                <ArrowUpDown className="w-3.5 h-3.5 text-cyan-400/60" />
+              </button>
 
-            {/* Sentinel — IntersectionObserver watches this to trigger next batch */}
-            {hasMore && (
-              <div ref={sentinelRef} className="h-4 w-full" aria-hidden="true" />
-            )}
-          </div>
-        </>
-      )}
+              {searchQuery && (
+                <p className="text-xs text-slate-400 mt-2">
+                  Found {filteredChapters.length} chapter
+                  {filteredChapters.length !== 1 ? "s" : ""}
+                </p>
+              )}
+            </div>
+
+            {/* Scrollable list */}
+            <div
+              ref={scrollContainerRef}
+              id="chapters-scroll"
+              className="flex-1 overflow-y-auto p-3 space-y-2"
+            >
+              {chaptersList.length > 0 ? (
+                chaptersList.map((chapter) => {
+                  const isRead = isChapterRead(chapter.chapter_number);
+                  const isLocked = isChapterLocked(chapter.chapter_number);
+                  const isCurrent =
+                    parseFloat(String(currentChapter)) === chapter.chapter_number;
+
+                  return (
+                    <Link
+                      key={chapter.id}
+                      href={
+                        isLocked
+                          ? "#"
+                          : `/manga/${mangaId}/chapter/${formatChapterForUrl(chapter.chapter_number)}`
+                      }
+                      className={isLocked ? "pointer-events-none" : ""}
+                      onClick={() => !isLocked && markChapterAsRead(chapter.chapter_number)}
+                    >
+                      <div
+                        className={`p-3 my-1 rounded-lg transition-all duration-200 group border flex items-center justify-between active:scale-[0.98] relative overflow-hidden ${
+                          isCurrent
+                            ? "bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border-cyan-400/60 shadow-lg shadow-cyan-500/20"
+                            : isRead
+                            ? "bg-gradient-to-r from-emerald-900/30 to-emerald-800/20 border-emerald-600/50 hover:from-emerald-900/40 hover:to-emerald-800/30 hover:border-emerald-500/60"
+                            : "bg-slate-800/30 border-slate-700/50 hover:bg-slate-800/50 hover:border-cyan-400/40"
+                        } ${isLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                      >
+                        {isRead && !isCurrent && (
+                          <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-emerald-400 to-emerald-600" />
+                        )}
+                        <div className="flex flex-col gap-0.5 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className={`text-sm font-semibold ${isRead ? "text-emerald-50" : "text-slate-100"}`}>
+                              {chapter.title || `Chapter ${chapter.chapter_number}`}
+                            </p>
+                            {isRead && (
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                            )}
+                          </div>
+                          <p className={`text-xs ${isRead ? "text-emerald-200/60" : "text-slate-400"}`}>
+                            {new Date(chapter.published_at).toLocaleDateString()}
+                          </p>
+                          {isLocked && (
+                            <p className="text-xs text-amber-400/70 mt-1">Not released yet</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {isLocked ? (
+                            <Lock className="w-4 h-4 text-amber-500/70" />
+                          ) : (
+                            <ChevronRight
+                              className={`w-4 h-4 transition-colors ${
+                                isRead
+                                  ? "text-emerald-400/70 group-hover:text-emerald-300"
+                                  : "text-cyan-400/60 group-hover:text-cyan-400"
+                              }`}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-sm text-slate-400">No chapters found</p>
+                  {searchQuery && (
+                    <button
+                      onClick={clearSearch}
+                      className="mt-2 text-xs text-cyan-400 hover:text-cyan-300"
+                    >
+                      Clear search
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {isLoadingMore && (
+                <div className="p-4 text-center">
+                  <div className="inline-block w-4 h-4 border-2 border-cyan-400/30 border-t-cyan-400 rounded-full animate-spin" />
+                  <p className="text-xs text-slate-400 mt-2">Loading more chapters...</p>
+                </div>
+              )}
+
+              {/* Sentinel — IntersectionObserver watches this to trigger next batch */}
+              {hasMore && (
+                <div ref={sentinelRef} className="h-4 w-full" aria-hidden="true" />
+              )}
+            </div>
+          </>
+        )}
+      </div>
 
       <style jsx global>{`
-        html, body {
-          overflow: hidden;
-          height: 100%;
-          position: fixed;
-          width: 100%;
-        }
+        /*
+          No overflow:hidden or position:fixed on html/body.
+          Those rules were causing the keyboard-hides-sidebar bug:
+          when the soft keyboard opened, the fixed layout viewport stayed full
+          height but the visual viewport shrank, clipping content behind the keyboard.
+          The visualViewport API above handles this correctly instead.
+        */
         #chapters-scroll {
           scrollbar-width: thin;
           scrollbar-color: #475569 transparent;
@@ -443,10 +479,9 @@ export function ChaptersSidebar({
           border-radius: 4px;
         }
         #chapters-scroll::-webkit-scrollbar-thumb:hover { background: #64748b; }
-        @supports (-webkit-touch-callout: none) {
-          input[type="search"] { font-size: 16px; }
-        }
+        /* Prevent iOS auto-zoom on input focus (also set inline as fallback) */
+        input[type="search"] { font-size: 16px; }
       `}</style>
-    </div>
+    </>
   );
 }
