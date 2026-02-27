@@ -1,41 +1,20 @@
-// ==============================================
-// FILE: app/api/manga/image/route.ts
-// Server-side API route - caching handled on client
-// ==============================================
+// app/api/manga/image/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import redis from "@/lib/redis";
+import { TTL } from "@/lib/cacheTTL";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// In-memory cache for the server (resets on restart)
-// For production, use Redis or similar
-const serverCache = new Map<string, {
-  buffer: Buffer;
-  contentType: string;
-  timestamp: number;
-}>();
-
-const urlCache = new Map<string, {
-  url: string;
-  timestamp: number;
-}>();
-
-const CACHE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-
 function getCacheKey(mangaSlug: string, chapter: number, panel: number): string {
-  return `${mangaSlug}_${chapter}_${panel}`;
-}
-
-function isCacheExpired(timestamp: number): boolean {
-  return Date.now() - timestamp > CACHE_EXPIRY_MS;
+  return `panel-url:${mangaSlug}:${chapter}:${panel}`;
 }
 
 async function fetchImageWithRetry(imageUrl: string, retries = 3): Promise<Response> {
   const methods = [
-    // Method 1: Direct fetch with realistic browser headers
     async () => {
       return fetch(imageUrl, {
         headers: {
@@ -54,7 +33,6 @@ async function fetchImageWithRetry(imageUrl: string, retries = 3): Promise<Respo
       });
     },
     
-    // Method 2: Use CORS proxy
     async () => {
       const proxiedUrl = "https://corsproxy.io/?" + encodeURIComponent(imageUrl);
       return fetch(proxiedUrl, {
@@ -64,7 +42,6 @@ async function fetchImageWithRetry(imageUrl: string, retries = 3): Promise<Respo
       });
     },
     
-    // Method 3: Alternative with delay
     async () => {
       await new Promise(resolve => setTimeout(resolve, 1000));
       return fetch(imageUrl, {
@@ -83,9 +60,7 @@ async function fetchImageWithRetry(imageUrl: string, retries = 3): Promise<Respo
     for (const method of methods) {
       try {
         const response = await method();
-        if (response.ok) {
-          return response;
-        }
+        if (response.ok) return response;
       } catch (error) {
         lastError = error as Error;
         console.error(`Fetch attempt failed:`, error);
@@ -126,37 +101,24 @@ export async function GET(request: NextRequest) {
 
   const cacheKey = getCacheKey(mangaSlug, chapterNum, panelNum);
 
-  // Check server cache
-  if (!skipCache) {
-    const cached = serverCache.get(cacheKey);
-    if (cached && !isCacheExpired(cached.timestamp)) {
-      console.log(`[Manga Image] Server Cache HIT: ${mangaSlug} ch${chapterNum} p${panelNum}`);
-      return new NextResponse(cached.buffer, {
-        headers: {
-          "Content-Type": cached.contentType,
-          "Cache-Control": "public, max-age=604800, immutable",
-          "X-Content-Type-Options": "nosniff",
-          "X-Cache": "HIT",
-        },
-      });
-    }
-  }
-
-  console.log(`[Manga Image] Cache MISS: Fetching ${mangaSlug} ch${chapterNum} p${panelNum}`);
-
   try {
-    // Check URL cache
+    // ✅ Redis cache for image URL only (Supabase lookup)
     let imageUrl: string | undefined;
-    const cachedUrl = urlCache.get(cacheKey);
-    
-    if (cachedUrl && !isCacheExpired(cachedUrl.timestamp)) {
-      imageUrl = cachedUrl.url;
-    } else {
-      // Query Supabase
+
+    if (!skipCache) {
+      const cachedUrl = await redis.get(cacheKey);
+      if (cachedUrl) {
+        console.log(`[Manga Image] URL Cache HIT: ${mangaSlug} ch${chapterNum} p${panelNum}`);
+        imageUrl = cachedUrl as string;
+      }
+    }
+
+    if (!imageUrl) {
+      console.log(`[Manga Image] URL Cache MISS: Fetching ${mangaSlug} ch${chapterNum} p${panelNum}`);
+
       const { data, error } = await supabase
         .from("panels")
-        .select(
-          `
+        .select(`
           image_url,
           chapter:chapters!inner(
             chapter_number,
@@ -164,8 +126,7 @@ export async function GET(request: NextRequest) {
               slug
             )
           )
-        `
-        )
+        `)
         .eq("chapter.manga.slug", mangaSlug)
         .eq("chapter.chapter_number", chapterNum)
         .eq("panel_number", panelNum)
@@ -173,45 +134,22 @@ export async function GET(request: NextRequest) {
 
       if (error || !data) {
         console.error("Database query error:", error);
-        return NextResponse.json(
-          { error: "Image not found" },
-          { status: 404 }
-        );
+        return NextResponse.json({ error: "Image not found" }, { status: 404 });
       }
 
       imageUrl = data.image_url;
-      urlCache.set(cacheKey, { url: imageUrl, timestamp: Date.now() });
+
+      // ✅ Cache URL in Redis — 1 week since panel URLs never change
+      await redis.set(cacheKey, imageUrl, 'EX', TTL.WEEK);
     }
 
-    // Fetch image with retry
+    // Fetch actual image with retry
     console.log(`Fetching image: ${imageUrl}`);
     const imageResponse = await fetchImageWithRetry(imageUrl);
 
     const imageBuffer = await imageResponse.arrayBuffer();
     const contentType = imageResponse.headers.get("content-type") || "image/jpeg";
     const buffer = Buffer.from(imageBuffer);
-
-    // Cache in memory
-    serverCache.set(cacheKey, {
-      buffer,
-      contentType,
-      timestamp: Date.now(),
-    });
-
-    // Clean old cache entries periodically (1% chance per request)
-    if (Math.random() < 0.01) {
-      const now = Date.now();
-      for (const [key, value] of serverCache.entries()) {
-        if (isCacheExpired(value.timestamp)) {
-          serverCache.delete(key);
-        }
-      }
-      for (const [key, value] of urlCache.entries()) {
-        if (isCacheExpired(value.timestamp)) {
-          urlCache.delete(key);
-        }
-      }
-    }
 
     return new NextResponse(buffer, {
       headers: {

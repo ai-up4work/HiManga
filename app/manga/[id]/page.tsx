@@ -7,14 +7,89 @@ import { MangaDetailsHero } from "@/components/manga-details-hero";
 import { HorizontalMangaCard } from "@/components/horizontal-manga-card";
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
-import { BookOpen, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { BookOpen, ChevronLeft, ChevronRight } from "lucide-react";
 import { Card } from "@/components/ui/card";
 
 interface MangaDetailsPageProps {
-  params: Promise<{
-    id: string;
-  }>;
+  params: Promise<{ id: string }>;
 }
+
+// ── Skeletons ─────────────────────────────────────────────────────────────────
+
+function SkeletonHero() {
+  return (
+    <div className="animate-pulse">
+      <div className="h-[420px] bg-white/10 w-full" />
+      <div className="px-6 lg:px-10 py-8 space-y-4 bg-[#0a0a1a]">
+        <div className="flex gap-6">
+          <div className="w-40 h-56 rounded-xl bg-white/10 flex-shrink-0 -mt-20" />
+          <div className="flex-1 space-y-3 pt-2">
+            <div className="h-8 bg-white/10 rounded-full w-2/3" />
+            <div className="h-4 bg-white/10 rounded-full w-1/3" />
+            <div className="flex gap-2 pt-1">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-6 w-16 bg-white/10 rounded-full" />
+              ))}
+            </div>
+            <div className="space-y-2 pt-2">
+              <div className="h-3 bg-white/10 rounded-full w-full" />
+              <div className="h-3 bg-white/10 rounded-full w-5/6" />
+              <div className="h-3 bg-white/10 rounded-full w-4/6" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SkeletonRelatedCard() {
+  return (
+    <div className="flex-shrink-0 w-[200px] lg:w-[270px] animate-pulse">
+      <div className="rounded-xl overflow-hidden bg-white/5 border border-white/10">
+        <div className="aspect-[2/3] bg-white/10" />
+        <div className="p-3 space-y-2">
+          <div className="h-3.5 bg-white/10 rounded-full w-4/5" />
+          <div className="h-3 bg-white/10 rounded-full w-2/5" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MangaDetailsSkeleton() {
+  return (
+    <div className="min-h-screen bg-background flex flex-col">
+      <Header />
+      <main className="flex flex-1">
+        <section className="flex-1">
+          <SkeletonHero />
+          <div className="h-24 bg-gradient-to-b from-[#0a0a1a] via-[#0f1729] to-slate-900" />
+          <div className="bg-slate-900 px-0 py-8">
+            <div className="mx-auto -my-10 max-w-[1600px]">
+              <div className="flex items-center gap-2 mb-6 px-6 lg:px-10">
+                <div className="h-5 w-5 rounded bg-white/10 animate-pulse" />
+                <div className="h-6 w-44 bg-white/10 rounded-full animate-pulse" />
+              </div>
+              <div className="overflow-hidden pl-6 lg:pl-10">
+                <div className="flex gap-4 lg:gap-6 pr-6 lg:pr-10">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} style={{ animationDelay: `${i * 50}ms` }}>
+                      <SkeletonRelatedCard />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+      <Footer />
+    </div>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function MangaDetailsPage({ params }: MangaDetailsPageProps) {
   const { id } = use(params);
@@ -24,57 +99,35 @@ export default function MangaDetailsPage({ params }: MangaDetailsPageProps) {
   const [relatedMangaIds, setRelatedMangaIds] = useState<string[]>([]);
   const [isLoadingRelated, setIsLoadingRelated] = useState(true);
 
-  // Fetch current manga and related mangas using the cached hook
   const { favoriteMangas: allMangas, isLoading: mangasLoading } = useMangas(
-    "system", // Use a system user ID to enable caching
-    [id, ...relatedMangaIds], // Fetch current manga + related mangas
+    "system",
+    [id, ...relatedMangaIds],
     []
   );
 
-  // Extract current manga from the results
   const currentManga = allMangas.find((m) => m.id === id);
   const relatedMangas = allMangas.filter((m) => m.id !== id);
 
-  // Fetch related manga IDs based on current manga's genres
   useEffect(() => {
     async function fetchRelatedMangas() {
       if (!currentManga) return;
-
       setIsLoadingRelated(true);
       try {
         const genres = currentManga.genre;
+        if (genres.length === 0) return;
 
-        if (genres.length === 0) {
-          setIsLoadingRelated(false);
-          return;
-        }
-
-        // Get genre IDs
         const { data: genreData, error: genreError } = await supabase
-          .from("genres")
-          .select("id")
-          .in("name", genres);
-
+          .from("genres").select("id").in("name", genres);
         if (genreError) throw genreError;
 
         const genreIds = genreData?.map((g) => g.id) || [];
+        if (genreIds.length === 0) return;
 
-        if (genreIds.length === 0) {
-          setIsLoadingRelated(false);
-          return;
-        }
-
-        // Get manga IDs that have these genres
         const { data: mangaGenreData, error: mangaGenreError } = await supabase
-          .from("manga_genres")
-          .select("manga_id")
-          .in("genre_id", genreIds)
-          .neq("manga_id", id)
-          .limit(20);
-
+          .from("manga_genres").select("manga_id")
+          .in("genre_id", genreIds).neq("manga_id", id).limit(20);
         if (mangaGenreError) throw mangaGenreError;
 
-        // Get unique manga IDs
         const uniqueMangaIds = Array.from(
           new Set(mangaGenreData?.map((mg) => mg.manga_id) || [])
         ).slice(0, 20);
@@ -94,8 +147,7 @@ export default function MangaDetailsPage({ params }: MangaDetailsPageProps) {
 
   const handleScroll = () => {
     if (scrollContainerRef.current) {
-      const { scrollLeft, scrollWidth, clientWidth } =
-        scrollContainerRef.current;
+      const { scrollLeft, scrollWidth, clientWidth } = scrollContainerRef.current;
       setShowLeftArrow(scrollLeft > 0);
       setShowRightArrow(scrollLeft < scrollWidth - clientWidth - 10);
     }
@@ -104,35 +156,15 @@ export default function MangaDetailsPage({ params }: MangaDetailsPageProps) {
   const scroll = (direction: "left" | "right") => {
     if (scrollContainerRef.current) {
       const scrollAmount = 400;
-      const newScrollLeft =
-        direction === "left"
-          ? scrollContainerRef.current.scrollLeft - scrollAmount
-          : scrollContainerRef.current.scrollLeft + scrollAmount;
-
       scrollContainerRef.current.scrollTo({
-        left: newScrollLeft,
+        left: scrollContainerRef.current.scrollLeft + (direction === "left" ? -scrollAmount : scrollAmount),
         behavior: "smooth",
       });
     }
   };
 
-  // Loading state
-  if (mangasLoading || isLoadingRelated) {
-    return (
-      <div className="min-h-screen bg-background flex flex-col">
-        <Header />
-        <main className="flex-1 flex items-center justify-center">
-          <div className="text-center space-y-4">
-            <Loader2 className="w-12 h-12 animate-spin mx-auto text-primary" />
-            <p className="text-muted-foreground">Loading manga details...</p>
-          </div>
-        </main>
-        <Footer />
-      </div>
-    );
-  }
+  if (mangasLoading || isLoadingRelated) return <MangaDetailsSkeleton />;
 
-  // Not found state
   if (!currentManga) {
     return (
       <div className="min-h-screen bg-background flex flex-col">
@@ -140,9 +172,7 @@ export default function MangaDetailsPage({ params }: MangaDetailsPageProps) {
         <main className="flex-1 flex items-center justify-center">
           <Card className="p-8 text-center bg-card/50 border-white/10 backdrop-blur-sm">
             <h2 className="text-2xl font-bold mb-4">Manga Not Found</h2>
-            <p className="text-muted-foreground">
-              The manga you're looking for doesn't exist.
-            </p>
+            <p className="text-muted-foreground">The manga you're looking for doesn't exist.</p>
           </Card>
         </main>
         <Footer />
@@ -154,36 +184,30 @@ export default function MangaDetailsPage({ params }: MangaDetailsPageProps) {
     <div className="min-h-screen bg-background flex flex-col">
       <Header />
 
-      <main className="flex flex-1 lg:h-[calc(100vh-100px)] overflow-hidden">
-        <section className="flex-1 overflow-y-auto h-full">
+      <main className="flex flex-1">
+        <section className="flex-1">
           <MangaDetailsHero manga={currentManga} />
 
-          <div className="h-24 bg-gradient-to-b from-[#0a0a1a] via-[#0f1729] to-slate-900"></div>
+          <div className="h-24 bg-gradient-to-b from-[#0a0a1a] via-[#0f1729] to-slate-900" />
 
           <div className="bg-slate-900 px-0 py-8">
             <div className="mx-auto -my-10 max-w-[1600px]">
               <div className="flex items-center gap-2 mb-6 px-6 lg:px-10">
                 <BookOpen className="h-5 w-5 text-pink-500" />
-                <h2 className="text-2xl font-bold text-white">
-                  You May Also Like
-                </h2>
+                <h2 className="text-2xl font-bold text-white">You May Also Like</h2>
                 {relatedMangas.length > 0 && (
                   <span className="text-sm text-white/60 ml-auto">
-                    {relatedMangas.length}{" "}
-                    {relatedMangas.length === 1 ? "manga" : "mangas"}
+                    {relatedMangas.length} {relatedMangas.length === 1 ? "manga" : "mangas"}
                   </span>
                 )}
               </div>
 
-              {/* No related mangas */}
               {relatedMangas.length === 0 ? (
                 <div className="flex items-center justify-center py-12 px-6">
                   <p className="text-white/60">No related manga found</p>
                 </div>
               ) : (
-                /* Related mangas carousel */
                 <div className="relative group">
-                  {/* Left Arrow */}
                   {showLeftArrow && (
                     <button
                       onClick={() => scroll("left")}
@@ -193,8 +217,6 @@ export default function MangaDetailsPage({ params }: MangaDetailsPageProps) {
                       <ChevronLeft className="w-6 h-6 text-white" />
                     </button>
                   )}
-
-                  {/* Right Arrow */}
                   {showRightArrow && (
                     <button
                       onClick={() => scroll("right")}
@@ -204,8 +226,6 @@ export default function MangaDetailsPage({ params }: MangaDetailsPageProps) {
                       <ChevronRight className="w-6 h-6 text-white" />
                     </button>
                   )}
-
-                  {/* Scrollable container */}
                   <div
                     ref={scrollContainerRef}
                     onScroll={handleScroll}
@@ -213,10 +233,7 @@ export default function MangaDetailsPage({ params }: MangaDetailsPageProps) {
                   >
                     <div className="flex gap-4 lg:gap-6 pr-6 lg:pr-10">
                       {relatedMangas.map((relatedManga) => (
-                        <div
-                          key={relatedManga.id}
-                          className="flex-shrink-0 w-[200px] lg:w-[270px]"
-                        >
+                        <div key={relatedManga.id} className="flex-shrink-0 w-[200px] lg:w-[270px]">
                           <HorizontalMangaCard manga={relatedManga} />
                         </div>
                       ))}
@@ -232,13 +249,8 @@ export default function MangaDetailsPage({ params }: MangaDetailsPageProps) {
       <Footer />
 
       <style jsx global>{`
-        .scrollbar-hide::-webkit-scrollbar {
-          display: none;
-        }
-        .scrollbar-hide {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
-        }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
       `}</style>
     </div>
   );

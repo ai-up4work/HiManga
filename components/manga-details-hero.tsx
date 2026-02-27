@@ -56,6 +56,8 @@ export function MangaDetailsHero({ manga }: MangaDetailsHeroProps) {
               <Image
                 src={manga.cover || "/placeholder.svg"}
                 alt={manga.title}
+                width={384}
+                height={512}
                 className="w-full rounded-lg shadow-lg shadow-pink-500/20 object-cover aspect-[3/4] group-hover:shadow-xl group-hover:shadow-pink-500/40 transition-all duration-300 border border-white/10"
               />
               <div className="absolute top-4 right-4">

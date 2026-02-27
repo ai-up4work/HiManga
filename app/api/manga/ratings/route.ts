@@ -2,65 +2,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from 'next/headers';
+import redis from "@/lib/redis";
+import { TTL } from "@/lib/cacheTTL";
 
-// Initialize Supabase
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPESUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPESUPABASE_ANON_KEY!
 );
 
-// LocalStorage key for caching ratings
-const RATINGS_CACHE_KEY = "manga_ratings_cache";
-const CACHE_VERSION_KEY = "manga_ratings_cache_version";
-
-// Helper to get cached ratings from localStorage (client-side only)
-function getCachedRatings(userId: string): any {
-  if (typeof window === 'undefined') return null;
-  
-  try {
-    const cached = localStorage.getItem(`${RATINGS_CACHE_KEY}_${userId}`);
-    const version = localStorage.getItem(`${CACHE_VERSION_KEY}_${userId}`);
-    
-    if (cached && version) {
-      return {
-        data: JSON.parse(cached),
-        version: parseInt(version)
-      };
-    }
-  } catch (error) {
-    console.error("Error reading from cache:", error);
-  }
-  
-  return null;
+function getCacheKey(userId: string, mangaId?: string): string {
+  return mangaId
+    ? `user-ratings:${userId}:${mangaId}`
+    : `user-ratings:${userId}:all`;
 }
 
-// Helper to set cached ratings in localStorage (client-side only)
-function setCachedRatings(userId: string, data: any, version: number): void {
-  if (typeof window === 'undefined') return;
-  
-  try {
-    localStorage.setItem(`${RATINGS_CACHE_KEY}_${userId}`, JSON.stringify(data));
-    localStorage.setItem(`${CACHE_VERSION_KEY}_${userId}`, version.toString());
-  } catch (error) {
-    console.error("Error writing to cache:", error);
-  }
+async function invalidateRatingsCache(userId: string, mangaId?: string) {
+  if (mangaId) await redis.del(getCacheKey(userId, mangaId));
+  await redis.del(getCacheKey(userId));
 }
 
-// Helper to invalidate cache
-function invalidateCache(userId: string): void {
-  if (typeof window === 'undefined') return;
-  
-  try {
-    localStorage.removeItem(`${RATINGS_CACHE_KEY}_${userId}`);
-    const currentVersion = localStorage.getItem(`${CACHE_VERSION_KEY}_${userId}`);
-    const newVersion = currentVersion ? parseInt(currentVersion) + 1 : 1;
-    localStorage.setItem(`${CACHE_VERSION_KEY}_${userId}`, newVersion.toString());
-  } catch (error) {
-    console.error("Error invalidating cache:", error);
-  }
-}
-
-// GET endpoint to fetch user rating(s)
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const cookieStore = await cookies();
@@ -68,7 +28,6 @@ export async function GET(req: NextRequest) {
   const mangaId = searchParams.get("mangaId");
   const skipCache = searchParams.get("skipCache") === "true";
 
-  // Validate required parameters
   if (!userId) {
     return NextResponse.json(
       { error: "userId is required", rating: null },
@@ -76,32 +35,15 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Check cache first if not skipping
+  // ✅ Redis cache check
+  const cacheKey = getCacheKey(userId, mangaId || undefined);
   if (!skipCache) {
-    const cached = getCachedRatings(userId);
-    
+    const cached = await redis.get(cacheKey);
     if (cached) {
-      // If fetching for specific manga
-      if (mangaId) {
-        const cachedRating = cached.data.find((r: any) => r.mangaId === mangaId);
-        return NextResponse.json({
-          mangaId,
-          rating: cachedRating?.rating || null,
-          review: cachedRating?.review || null,
-          createdAt: cachedRating?.createdAt,
-          updatedAt: cachedRating?.updatedAt,
-          fromCache: true,
-          cacheVersion: cached.version
-        });
-      }
-      
-      // Return all cached ratings
+      console.log(`[Ratings] Cache HIT: user=${userId}, manga=${mangaId || 'all'}`);
       return NextResponse.json({
-        userId,
-        ratings: cached.data,
-        totalRatings: cached.data.length,
-        fromCache: true,
-        cacheVersion: cached.version
+        ...JSON.parse(cached as string),
+        fromCache: true
       });
     }
   }
@@ -112,7 +54,6 @@ export async function GET(req: NextRequest) {
       .select("manga_id, rating, review, created_at, updated_at")
       .eq("user_id", userId);
 
-    // If mangaId is provided, filter for specific manga
     if (mangaId) {
       query = query.eq("manga_id", mangaId);
     }
@@ -127,7 +68,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Transform and cache the data
     const userRatings = data?.map((item) => ({
       mangaId: item.manga_id,
       rating: item.rating,
@@ -136,32 +76,34 @@ export async function GET(req: NextRequest) {
       updatedAt: item.updated_at,
     })) || [];
 
-    // Cache all ratings
-    const currentVersion = typeof window !== 'undefined' 
-      ? parseInt(localStorage.getItem(`${CACHE_VERSION_KEY}_${userId}`) || "0")
-      : 0;
-    setCachedRatings(userId, userRatings, currentVersion);
-
-    // If fetching for specific manga, return just the rating
     if (mangaId) {
       const userRating = userRatings[0];
-      return NextResponse.json({
+      const responseData = {
         mangaId,
         rating: userRating?.rating || null,
         review: userRating?.review || null,
         createdAt: userRating?.createdAt,
         updatedAt: userRating?.updatedAt,
         fromCache: false
-      });
+      };
+
+      // ✅ Store in Redis — invalidation handles freshness
+      await redis.set(cacheKey, JSON.stringify(responseData), 'EX', TTL.DAY);
+
+      return NextResponse.json(responseData);
     }
 
-    // If fetching all ratings, return structured data
-    return NextResponse.json({
+    const responseData = {
       userId,
       ratings: userRatings,
       totalRatings: userRatings.length,
       fromCache: false
-    });
+    };
+
+    // ✅ Store in Redis
+    await redis.set(cacheKey, JSON.stringify(responseData), 'EX', TTL.DAY);
+
+    return NextResponse.json(responseData);
   } catch (err) {
     console.error("Unexpected error:", err);
     return NextResponse.json(
@@ -171,7 +113,6 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST endpoint to create or update a rating
 export async function POST(req: NextRequest) {
   try {
     const cookieStore = await cookies();
@@ -186,7 +127,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Validate rating is between 1 and 5
     if (rating < 1 || rating > 5) {
       return NextResponse.json(
         { error: "Rating must be between 1 and 5" },
@@ -194,7 +134,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Upsert the rating
     const { data, error } = await supabase
       .from("user_ratings")
       .upsert(
@@ -205,22 +144,17 @@ export async function POST(req: NextRequest) {
           review: review || null,
           updated_at: new Date().toISOString(),
         },
-        {
-          onConflict: "user_id,manga_id",
-        }
+        { onConflict: "user_id,manga_id" }
       )
       .select();
 
     if (error) {
       console.error("Upsert error:", error);
-      return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Invalidate cache after successful update
-    invalidateCache(userId);
+    // ✅ Invalidate Redis cache
+    await invalidateRatingsCache(userId, mangaId);
 
     return NextResponse.json({
       success: true,
@@ -230,14 +164,10 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error("Unexpected error:", err);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
-// DELETE endpoint to remove a rating
 export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -252,7 +182,6 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    // Delete the rating
     const { error } = await supabase
       .from("user_ratings")
       .delete()
@@ -261,14 +190,11 @@ export async function DELETE(req: NextRequest) {
 
     if (error) {
       console.error("Delete error:", error);
-      return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Invalidate cache after successful deletion
-    invalidateCache(userId);
+    // ✅ Invalidate Redis cache
+    await invalidateRatingsCache(userId, mangaId);
 
     return NextResponse.json({
       success: true,
@@ -277,9 +203,6 @@ export async function DELETE(req: NextRequest) {
     });
   } catch (err) {
     console.error("Unexpected error:", err);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

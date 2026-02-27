@@ -44,6 +44,8 @@ export function HorizontalMangaCard({ manga }: HorizontalMangaCardProps) {
             <Image
               src={manga.cover || "/placeholder.svg"}
               alt={manga.title}
+              width={240}
+              height={320}
               className={`w-full h-full object-cover transition-transform duration-700 ${
                 isLocked ? "" : "group-hover:scale-110"
               }`}

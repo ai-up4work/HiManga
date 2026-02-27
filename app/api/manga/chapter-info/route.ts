@@ -1,147 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import redis from "@/lib/redis";
+import { TTL } from "@/lib/cacheTTL";
 
-// Initialize Supabase client (matches your .env typo)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPESUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPESUPABASE_ANON_KEY!
 );
-
-const CACHE_KEY_PREFIX = "chapter_info_cache_";
-const CACHE_EXPIRY_HOURS = 240;
-
-// Helper to get cache key
-function getCacheKey(mangaId: string, chapterNumber: number): string {
-  return `${CACHE_KEY_PREFIX}${mangaId}_${chapterNumber}`;
-}
-
-// Helper to check if cache is expired
-function isCacheExpired(timestamp: number): boolean {
-  const expiryMs = CACHE_EXPIRY_HOURS * 60 * 60 * 1000; // 3 hours in ms
-  return Date.now() - timestamp > expiryMs;
-}
-
-// Helper to get cached chapter info
-function getCachedChapterInfo(mangaId: string, chapterNumber: number): any {
-  if (typeof window === 'undefined') return null;
-  
-  try {
-    const cacheKey = getCacheKey(mangaId, chapterNumber);
-    const cached = localStorage.getItem(cacheKey);
-    
-    if (cached) {
-      const { data, timestamp } = JSON.parse(cached);
-      
-      // Check if cache is expired
-      if (isCacheExpired(timestamp)) {
-        localStorage.removeItem(cacheKey);
-        return null;
-      }
-      
-      return data;
-    }
-  } catch (error) {
-    console.error("Error reading chapter info from cache:", error);
-  }
-  
-  return null;
-}
-
-// Helper to cache chapter info
-function cacheChapterInfo(mangaId: string, chapterNumber: number, data: any): void {
-  if (typeof window === 'undefined') return;
-  
-  try {
-    const cacheKey = getCacheKey(mangaId, chapterNumber);
-    const cacheData = {
-      data,
-      timestamp: Date.now()
-    };
-    
-    localStorage.setItem(cacheKey, JSON.stringify(cacheData));
-  } catch (error) {
-    console.error("Error caching chapter info:", error);
-    // If localStorage is full, try to clear old chapter cache entries
-    if (error.name === 'QuotaExceededError') {
-      clearOldChapterCache();
-      // Try one more time
-      try {
-        const cacheKey = getCacheKey(mangaId, chapterNumber);
-        const cacheData = {
-          data,
-          timestamp: Date.now()
-        };
-        localStorage.setItem(cacheKey, JSON.stringify(cacheData));
-      } catch (retryError) {
-        console.error("Failed to cache chapter info after cleanup:", retryError);
-      }
-    }
-  }
-}
-
-// Helper to clear old cache entries
-function clearOldChapterCache(): void {
-  if (typeof window === 'undefined') return;
-  
-  try {
-    const keysToRemove: string[] = [];
-    
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith(CACHE_KEY_PREFIX)) {
-        try {
-          const cached = JSON.parse(localStorage.getItem(key)!);
-          if (isCacheExpired(cached.timestamp)) {
-            keysToRemove.push(key);
-          }
-        } catch (e) {
-          // Invalid cache entry, remove it
-          keysToRemove.push(key);
-        }
-      }
-    }
-    
-    keysToRemove.forEach(key => localStorage.removeItem(key));
-    console.log(`[Chapter Cache] Cleared ${keysToRemove.length} expired entries`);
-  } catch (error) {
-    console.error("Error clearing old chapter cache:", error);
-  }
-}
-
-// Helper to invalidate specific chapter cache
-export function invalidateChapterCache(mangaId: string, chapterNumber: number): void {
-  if (typeof window === 'undefined') return;
-  
-  try {
-    const cacheKey = getCacheKey(mangaId, chapterNumber);
-    localStorage.removeItem(cacheKey);
-    console.log(`[Chapter Cache] Invalidated cache for manga ${mangaId}, chapter ${chapterNumber}`);
-  } catch (error) {
-    console.error("Error invalidating chapter cache:", error);
-  }
-}
-
-// Helper to invalidate all chapter cache for a manga
-export function invalidateMangaChapterCache(mangaId: string): void {
-  if (typeof window === 'undefined') return;
-  
-  try {
-    const keysToRemove: string[] = [];
-    const prefix = `${CACHE_KEY_PREFIX}${mangaId}_`;
-    
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith(prefix)) {
-        keysToRemove.push(key);
-      }
-    }
-    
-    keysToRemove.forEach(key => localStorage.removeItem(key));
-    console.log(`[Chapter Cache] Invalidated ${keysToRemove.length} chapters for manga ${mangaId}`);
-  } catch (error) {
-    console.error("Error invalidating manga chapter cache:", error);
-  }
-}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -149,7 +14,6 @@ export async function GET(request: NextRequest) {
   const chapterParam = searchParams.get("chapter");
   const skipCache = searchParams.get("skipCache") === "true";
 
-  // Validate input
   if (!mangaId || !chapterParam) {
     return NextResponse.json(
       { error: "Missing required parameters: manga and chapter" },
@@ -157,7 +21,6 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Parse and validate chapter number
   const chapterNumber = parseFloat(chapterParam);
   if (isNaN(chapterNumber) || chapterNumber < 1) {
     return NextResponse.json(
@@ -166,14 +29,15 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Check cache first if not skipping
+  // ✅ Redis cache check
+  const cacheKey = `chapter-info:${mangaId}:${chapterNumber}`;
   if (!skipCache) {
-    const cached = getCachedChapterInfo(mangaId, chapterNumber);
+    const cached = await redis.get(cacheKey);
     if (cached) {
       console.log(`[Chapter Info] Cache HIT: manga=${mangaId}, chapter=${chapterNumber}`);
-      return NextResponse.json(cached, {
+      return NextResponse.json(JSON.parse(cached as string), {
         headers: {
-          "Cache-Control": "public, max-age=10800, s-maxage=10800, stale-while-revalidate=86400", // 3 hours
+          "Cache-Control": "public, max-age=10800, s-maxage=10800, stale-while-revalidate=86400",
           "X-Cache": "HIT",
         },
       });
@@ -183,7 +47,6 @@ export async function GET(request: NextRequest) {
   try {
     console.log(`[Chapter Info] Cache MISS: Fetching manga=${mangaId}, chapter=${chapterNumber}`);
 
-    // Query Supabase with proper numeric comparison
     const { data, error } = await supabase
       .from("chapters")
       .select(`
@@ -223,7 +86,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Type guard for manga relation
     if (!data.manga) {
       console.error("[Chapter Info] Manga relation missing:", data.id);
       return NextResponse.json(
@@ -247,13 +109,12 @@ export async function GET(request: NextRequest) {
       },
     };
 
-    // Cache the response data
-    cacheChapterInfo(mangaId, chapterNumber, responseData);
+    // ✅ Store in Redis — 1 week since chapter info never changes
+    await redis.set(cacheKey, JSON.stringify(responseData), 'EX', TTL.WEEK);
 
-    // Send response
     return NextResponse.json(responseData, {
       headers: {
-        "Cache-Control": "public, max-age=10800, s-maxage=10800, stale-while-revalidate=86400", // 3 hours
+        "Cache-Control": "public, max-age=10800, s-maxage=10800, stale-while-revalidate=86400",
         "X-Cache": "MISS",
       },
     });

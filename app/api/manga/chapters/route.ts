@@ -1,148 +1,13 @@
 // app/api/manga/chapters/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import redis from "@/lib/redis";
+import { TTL } from "@/lib/cacheTTL";
 
-// Initialize Supabase
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPESUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPESUPABASE_ANON_KEY!
 );
-
-const CACHE_KEY_PREFIX = "chapters_list_cache_";
-const CACHE_EXPIRY_HOURS = 3;
-
-// Helper to get cache key
-function getCacheKey(mangaId: string): string {
-  return `${CACHE_KEY_PREFIX}${mangaId}`;
-}
-
-// Helper to check if cache is expired
-function isCacheExpired(timestamp: number): boolean {
-  const expiryMs = CACHE_EXPIRY_HOURS * 60 * 60 * 1000; // 3 hours in ms
-  return Date.now() - timestamp > expiryMs;
-}
-
-// Helper to get cached chapters list
-function getCachedChaptersList(mangaId: string): any[] | null {
-  if (typeof window === 'undefined') return null;
-  
-  try {
-    const cacheKey = getCacheKey(mangaId);
-    const cached = localStorage.getItem(cacheKey);
-    
-    if (cached) {
-      const { chapters, timestamp } = JSON.parse(cached);
-      
-      // Check if cache is expired
-      if (isCacheExpired(timestamp)) {
-        localStorage.removeItem(cacheKey);
-        return null;
-      }
-      
-      return chapters;
-    }
-  } catch (error) {
-    console.error("Error reading chapters list from cache:", error);
-  }
-  
-  return null;
-}
-
-// Helper to cache chapters list
-function cacheChaptersList(mangaId: string, chapters: any[]): void {
-  if (typeof window === 'undefined') return;
-  
-  try {
-    const cacheKey = getCacheKey(mangaId);
-    const cacheData = {
-      chapters,
-      timestamp: Date.now()
-    };
-    
-    localStorage.setItem(cacheKey, JSON.stringify(cacheData));
-    console.log(`[Chapters Cache] Cached ${chapters.length} chapters for manga ${mangaId}`);
-  } catch (error) {
-    console.error("Error caching chapters list:", error);
-    // If localStorage is full, try to clear old chapter list cache entries
-    if (error.name === 'QuotaExceededError') {
-      clearOldChaptersListCache();
-      // Try one more time
-      try {
-        const cacheKey = getCacheKey(mangaId);
-        const cacheData = {
-          chapters,
-          timestamp: Date.now()
-        };
-        localStorage.setItem(cacheKey, JSON.stringify(cacheData));
-      } catch (retryError) {
-        console.error("Failed to cache chapters list after cleanup:", retryError);
-      }
-    }
-  }
-}
-
-// Helper to clear old cache entries
-function clearOldChaptersListCache(): void {
-  if (typeof window === 'undefined') return;
-  
-  try {
-    const keysToRemove: string[] = [];
-    
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith(CACHE_KEY_PREFIX)) {
-        try {
-          const cached = JSON.parse(localStorage.getItem(key)!);
-          if (isCacheExpired(cached.timestamp)) {
-            keysToRemove.push(key);
-          }
-        } catch (e) {
-          // Invalid cache entry, remove it
-          keysToRemove.push(key);
-        }
-      }
-    }
-    
-    keysToRemove.forEach(key => localStorage.removeItem(key));
-    console.log(`[Chapters Cache] Cleared ${keysToRemove.length} expired chapter list entries`);
-  } catch (error) {
-    console.error("Error clearing old chapters list cache:", error);
-  }
-}
-
-// Helper to invalidate chapters list cache for a manga
-export function invalidateChaptersListCache(mangaId: string): void {
-  if (typeof window === 'undefined') return;
-  
-  try {
-    const cacheKey = getCacheKey(mangaId);
-    localStorage.removeItem(cacheKey);
-    console.log(`[Chapters Cache] Invalidated chapters list cache for manga ${mangaId}`);
-  } catch (error) {
-    console.error("Error invalidating chapters list cache:", error);
-  }
-}
-
-// Helper to invalidate all chapters list cache
-export function invalidateAllChaptersListCache(): void {
-  if (typeof window === 'undefined') return;
-  
-  try {
-    const keysToRemove: string[] = [];
-    
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith(CACHE_KEY_PREFIX)) {
-        keysToRemove.push(key);
-      }
-    }
-    
-    keysToRemove.forEach(key => localStorage.removeItem(key));
-    console.log(`[Chapters Cache] Invalidated all ${keysToRemove.length} chapters list caches`);
-  } catch (error) {
-    console.error("Error invalidating all chapters list cache:", error);
-  }
-}
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -153,16 +18,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ chapters: [] }, { status: 400 });
   }
 
-  // Check cache first if not skipping
+  // ✅ Redis cache check
+  const cacheKey = `chapters-list:${mangaId}`;
   if (!skipCache) {
-    const cached = getCachedChaptersList(mangaId);
+    const cached = await redis.get(cacheKey);
     if (cached) {
-      console.log(`[Chapters List] Cache HIT: manga=${mangaId}, ${cached.length} chapters`);
+      const chapters = JSON.parse(cached as string);
+      console.log(`[Chapters List] Cache HIT: manga=${mangaId}, ${chapters.length} chapters`);
       return NextResponse.json(
-        { chapters: cached },
+        { chapters },
         {
           headers: {
-            "Cache-Control": "public, max-age=10800, s-maxage=10800, stale-while-revalidate=86400", // 3 hours
+            "Cache-Control": "public, max-age=10800, s-maxage=10800, stale-while-revalidate=86400",
             "X-Cache": "HIT",
           },
         }
@@ -199,20 +66,19 @@ export async function GET(req: NextRequest) {
 
       if (data.length < chunkSize) break;
 
-      // ✅ FIX: increment by actual number of rows returned
       start += data.length;
     }
 
     console.log(`[Chapters List] Success: Fetched ${allChapters.length} chapters for manga=${mangaId}`);
 
-    // Cache the chapters list
-    cacheChaptersList(mangaId, allChapters);
+    // ✅ Store in Redis — 1 day since chapter lists rarely change
+    await redis.set(cacheKey, JSON.stringify(allChapters), 'EX', TTL.DAY);
 
     return NextResponse.json(
       { chapters: allChapters },
       {
         headers: {
-          "Cache-Control": "public, max-age=10800, s-maxage=10800, stale-while-revalidate=86400", // 3 hours
+          "Cache-Control": "public, max-age=10800, s-maxage=10800, stale-while-revalidate=86400",
           "X-Cache": "MISS",
         },
       }

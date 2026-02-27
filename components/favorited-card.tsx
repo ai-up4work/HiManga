@@ -23,6 +23,8 @@ export function FavoritedCard({ manga, onRemove }: FavoritedCardProps) {
           <Image
             src={manga.cover || "/placeholder.svg"}
             alt={manga.title}
+            width={240}
+            height={320}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
           />
 

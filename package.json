@@ -52,6 +52,7 @@
     "embla-carousel-react": "latest",
     "immer": "latest",
     "input-otp": "latest",
+    "ioredis": "^5.9.3",
     "js-cookie": "^3.0.5",
     "lucide-react": "^0.454.0",
     "next": "15.2.8",
