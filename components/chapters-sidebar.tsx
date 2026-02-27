@@ -55,7 +55,6 @@ function ChaptersSidebarSkeleton() {
           </div>
         ))}
       </div>
-      {/* Skeleton for ad slot */}
       <div className="flex-shrink-0 border-t border-cyan-500/20 p-2">
         <div className="h-[90px] bg-slate-800/50 rounded-lg animate-pulse" />
       </div>
@@ -70,26 +69,24 @@ function formatChapterForUrl(num: number): string {
   return String(parseFloat(num.toFixed(2))).replace(".", "-");
 }
 
-// ── Sticky Bottom Ad (Monetag) ────────────────────────────────────────────────
+// ── Sticky Bottom Ad (Monetag In-Page Push) ───────────────────────────────────
+// Uses the EXACT same injection pattern as Monetag's provided snippet
 
 function StickyBottomAd() {
   useEffect(() => {
-    const zoneId = process.env.NEXT_PUBLIC_MONETAG_ZONE_ID;
-    if (!zoneId) return;
+    // Don't inject twice
+    if (document.querySelector('script[src="https://nap5k.com/tag.min.js"]')) return;
 
-    // Avoid injecting duplicate scripts
-    if (document.querySelector(`script[data-zone="${zoneId}"]`)) return;
+    // This replicates exactly:
+    // (function(s){s.dataset.zone='10662299',s.src='https://nap5k.com/tag.min.js'})
+    // ([document.documentElement, document.body].filter(Boolean).pop().appendChild(document.createElement('script')))
+    const s = [document.documentElement, document.body]
+      .filter(Boolean)
+      .pop()!
+      .appendChild(document.createElement("script"));
 
-    const script = document.createElement("script");
-    script.src = "//cdn.monetag.com/tag.min.js";
-    script.setAttribute("data-zone", zoneId);
-    script.async = true;
-    document.body.appendChild(script);
-
-    return () => {
-      const existing = document.querySelector(`script[data-zone="${zoneId}"]`);
-      if (existing) document.body.removeChild(existing);
-    };
+    s.dataset.zone = process.env.NEXT_PUBLIC_MONETAG_ZONE_ID || "10662299";
+    s.src = "https://nap5k.com/tag.min.js";
   }, []);
 
   return (
@@ -97,10 +94,7 @@ function StickyBottomAd() {
       <p className="text-[9px] text-slate-600 text-center pt-1 select-none tracking-wide uppercase">
         Advertisement
       </p>
-      <div
-        id="monetag-banner"
-        style={{ minHeight: "90px", width: "100%" }}
-      />
+      <div style={{ minHeight: "90px", width: "100%" }} />
     </div>
   );
 }
@@ -448,7 +442,7 @@ export function ChaptersSidebar({
             )}
           </div>
 
-          {/* Sticky ad — always visible at the bottom, never scrolls away */}
+          {/* Sticky Monetag In-Page Push Ad */}
           <StickyBottomAd />
         </>
       )}
