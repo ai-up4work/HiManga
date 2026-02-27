@@ -76,7 +76,7 @@ export function AnimeCard({ manga }: AnimeCardProps) {
                 manga.cover ||
                 "/placeholder.svg?height=340&width=240&query=anime"
               }
-              fillding trending m
+              fill
               alt={manga.title}
               className={`w-full h-full object-cover transition-all duration-700 ${
                 isLocked
