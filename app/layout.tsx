@@ -10,11 +10,15 @@ import "./globals.css";
 const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
-// Define the base URL - IMPORTANT: Use your actual production URL
-const baseUrl = "https://himanga.fun"; // Changed from .app to .fun to match canonical
+const baseUrl = "https://himanga.fun";
+
+// ── Monetag Zone IDs ──────────────────────────────────────────────────────────
+// NEXT_PUBLIC_MONETAG_GLOBAL_ZONE_ID → fires on ALL pages (add new zone in Monetag dashboard)
+// NEXT_PUBLIC_MONETAG_ZONE_ID        → fires on chapter pages only (via sidebar)
+const globalZoneId = process.env.NEXT_PUBLIC_MONETAG_GLOBAL_ZONE_ID;
 
 export const metadata: Metadata = {
-  metadataBase: new URL(baseUrl), // THIS IS CRITICAL - Next.js needs this for absolute URLs
+  metadataBase: new URL(baseUrl),
   title: {
     default: "HiManga - Read Manga Online | Level Up Your Manga Experience",
     template: "%s | HiManga",
@@ -60,7 +64,7 @@ export const metadata: Metadata = {
       "Discover and read your favorite manga with a beautiful, anime-inspired interface. Thousands of manga titles, infinite scroll, and community discussions.",
     images: [
       {
-        url: "https://himanga.fun/Og-image.jpg", // Will be converted to absolute URL using metadataBase
+        url: "https://himanga.fun/Og-image.jpg",
         width: 1200,
         height: 630,
         alt: "HiManga - Manga Reader",
@@ -70,7 +74,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    site: "@himanga", // Add your Twitter handle if you have one
+    site: "@himanga",
     creator: "@himanga",
     title: "HiManga - Read Manga Online | Level Up Your Manga Experience",
     description:
@@ -84,7 +88,6 @@ export const metadata: Metadata = {
     canonical: baseUrl,
   },
   verification: {
-    // Add these if you have them
     // google: "your-google-verification-code",
     // yandex: "your-yandex-verification-code",
   },
@@ -103,6 +106,15 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark overflow-x-hidden">
       <head>
+        {/* ── Monetag Global In-Page Push — fires on ALL pages ── */}
+        {globalZoneId && (
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `(function(s){s.dataset.zone='${globalZoneId}',s.src='https://nap5k.com/tag.min.js'})([document.documentElement,document.body].filter(Boolean).pop().appendChild(document.createElement('script')))`,
+            }}
+          />
+        )}
+
         {/* Explicit meta tags for WhatsApp */}
         <meta property="og:image" content="https://himanga.fun/Og-image.jpg" />
         <meta
