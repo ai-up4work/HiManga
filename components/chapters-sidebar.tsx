@@ -1,8 +1,6 @@
 "use client";
 
-import type React from "react";
-
-import { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   Lock,
   ChevronRight,
@@ -57,6 +55,10 @@ function ChaptersSidebarSkeleton() {
           </div>
         ))}
       </div>
+      {/* Skeleton for ad slot */}
+      <div className="flex-shrink-0 border-t border-cyan-500/20 p-2">
+        <div className="h-[90px] bg-slate-800/50 rounded-lg animate-pulse" />
+      </div>
     </>
   );
 }
@@ -66,6 +68,41 @@ function ChaptersSidebarSkeleton() {
 function formatChapterForUrl(num: number): string {
   if (Number.isInteger(num)) return String(num);
   return String(parseFloat(num.toFixed(2))).replace(".", "-");
+}
+
+// ── Sticky Bottom Ad (Monetag) ────────────────────────────────────────────────
+
+function StickyBottomAd() {
+  useEffect(() => {
+    const zoneId = process.env.NEXT_PUBLIC_MONETAG_ZONE_ID;
+    if (!zoneId) return;
+
+    // Avoid injecting duplicate scripts
+    if (document.querySelector(`script[data-zone="${zoneId}"]`)) return;
+
+    const script = document.createElement("script");
+    script.src = "//cdn.monetag.com/tag.min.js";
+    script.setAttribute("data-zone", zoneId);
+    script.async = true;
+    document.body.appendChild(script);
+
+    return () => {
+      const existing = document.querySelector(`script[data-zone="${zoneId}"]`);
+      if (existing) document.body.removeChild(existing);
+    };
+  }, []);
+
+  return (
+    <div className="flex-shrink-0 border-t border-slate-700/40 bg-slate-900/95 backdrop-blur-md">
+      <p className="text-[9px] text-slate-600 text-center pt-1 select-none tracking-wide uppercase">
+        Advertisement
+      </p>
+      <div
+        id="monetag-banner"
+        style={{ minHeight: "90px", width: "100%" }}
+      />
+    </div>
+  );
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -85,18 +122,12 @@ export function ChaptersSidebar({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-  // ── KEY FIX: Raw data always stored ascending. Sort is applied at render
-  // time only — never stored in state — so sortOrder changes never trigger
-  // a re-fetch, and filteredLengthRef always reflects the full list length
-  // regardless of which sort direction is active.
   const [rawChapters, setRawChapters] = useState<Chapter[]>([]);
   const [readChapters, setReadChapters] = useState<number[]>([]);
   const [usingFallback, setUsingFallback] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [maxAvailableChapter, setMaxAvailableChapter] = useState(0);
 
-  // Refs let the scroll handler read current values without stale closures
-  // and without needing to be re-registered on every render.
   const filteredLengthRef = useRef(0);
   const isLoadingMoreRef = useRef(false);
 
@@ -125,7 +156,6 @@ export function ChaptersSidebar({
       }
     };
     fetchChapters();
-    // sortOrder intentionally NOT in deps — sort is client-side only
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mangaId]);
 
@@ -166,7 +196,7 @@ export function ChaptersSidebar({
     setUsingFallback(true);
   };
 
-  // ── Derived lists — pure computation, no extra state ─────────────────────
+  // ── Derived lists ─────────────────────────────────────────────────────────
   const sortedChapters =
     sortOrder === "desc" ? [...rawChapters].reverse() : rawChapters;
 
@@ -178,15 +208,12 @@ export function ChaptersSidebar({
       )
     : sortedChapters;
 
-  // Always keep ref in sync before render so scroll handler sees current value
   filteredLengthRef.current = filteredChapters.length;
 
   const chaptersList = filteredChapters.slice(0, displayedChapters);
   const hasMore = displayedChapters < filteredChapters.length;
 
-  // ── Infinite scroll via IntersectionObserver on sentinel ─────────────────
-  // More reliable than scroll distance math: fires whenever the sentinel div
-  // enters the viewport. Re-fires after each batch if sentinel is still visible.
+  // ── Infinite scroll ───────────────────────────────────────────────────────
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   const loadMore = useCallback(() => {
@@ -218,7 +245,6 @@ export function ChaptersSidebar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadMore, isLoading]);
 
-  // Reset pagination & scroll to top on sort/search change
   useEffect(() => {
     setDisplayedChapters(BATCH);
     isLoadingMoreRef.current = false;
@@ -283,7 +309,7 @@ export function ChaptersSidebar({
               )}
             </div>
 
-            <div className="hidden lg:block mt-3 relative">              
+            <div className="hidden lg:block mt-3 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none z-10" />
               <input
                 ref={searchInputRef}
@@ -327,7 +353,7 @@ export function ChaptersSidebar({
             )}
           </div>
 
-          {/* Scrollable list */}
+          {/* Scrollable list — flex-1 so it fills space above the sticky ad */}
           <div
             ref={scrollContainerRef}
             id="chapters-scroll"
@@ -417,11 +443,13 @@ export function ChaptersSidebar({
               </div>
             )}
 
-            {/* Sentinel — IntersectionObserver watches this to trigger next batch */}
             {hasMore && (
               <div ref={sentinelRef} className="h-4 w-full" aria-hidden="true" />
             )}
           </div>
+
+          {/* Sticky ad — always visible at the bottom, never scrolls away */}
+          <StickyBottomAd />
         </>
       )}
 
