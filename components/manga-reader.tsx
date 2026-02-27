@@ -89,13 +89,15 @@ export function MangaReader({
 
   const isLockedChapter = chapter > totalChapters;
 
+  // ✅ FIX: Don't pad decimal chapters — 314.1 stays "314.1" not "314."
   const getOptimizedPanelUrl = (panelNumber: number) => {
-    const paddedChapter = String(chapter).padStart(3, "0");
+    const chapterStr = Number.isInteger(chapter)
+      ? String(chapter).padStart(3, "0")
+      : String(chapter);
     const paddedPanel = String(panelNumber).padStart(3, "0");
-    return `/api/manga/image?manga=${mangaSlug}&chapter=${paddedChapter}&panel=${paddedPanel}`;
+    return `/api/manga/image?manga=${mangaSlug}&chapter=${chapterStr}&panel=${paddedPanel}`;
   };
 
-  // Handle panel loading state
   const handleImageLoadStart = (panelNumber: number) => {
     setLoadingPanels((prev) => new Set(prev).add(panelNumber));
   };
@@ -117,11 +119,9 @@ export function MangaReader({
     });
   };
 
-  // Enhanced intersection observer for viewport prioritization
   useEffect(() => {
     if (isLockedChapter || displayedPanels.length === 0) return;
 
-    // Observer for panel visibility tracking
     const visibilityObserver = new IntersectionObserver(
       (entries) => {
         let mostVisibleEntry = null;
@@ -149,7 +149,6 @@ export function MangaReader({
       }
     );
 
-    // Observer for image loading prioritization
     const imageObserver = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
@@ -162,14 +161,13 @@ export function MangaReader({
         });
       },
       {
-        rootMargin: "50% 0px", // Load images when they're 50% away from viewport
+        rootMargin: "50% 0px",
         threshold: 0.1,
       }
     );
 
     imageObserverRef.current = imageObserver;
 
-    // Observe all panels and images
     Object.values(panelRefs.current).forEach((ref) => {
       if (ref) {
         visibilityObserver.observe(ref);
@@ -186,7 +184,6 @@ export function MangaReader({
     };
   }, [displayedPanels, isLockedChapter, currentVisiblePanel]);
 
-  // Handle panel query parameter on mount
   useEffect(() => {
     if (typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search);
@@ -202,7 +199,6 @@ export function MangaReader({
     }
   }, []);
 
-  // Initial bookmark save after 20 seconds (with notification)
   useEffect(() => {
     if (!user || isLockedChapter || hasBookmarkedRef.current) return;
 
@@ -220,16 +216,8 @@ export function MangaReader({
         clearTimeout(bookmarkTimerRef.current);
       }
     };
-  }, [
-    user,
-    chapter,
-    mangaId,
-    addBookmark,
-    isLockedChapter,
-    currentVisiblePanel,
-  ]);
+  }, [user, chapter, mangaId, addBookmark, isLockedChapter, currentVisiblePanel]);
 
-  // Silent panel update every 10 seconds after initial bookmark
   useEffect(() => {
     if (!user || isLockedChapter || !hasBookmarkedRef.current) return;
 
@@ -246,24 +234,14 @@ export function MangaReader({
         clearInterval(panelUpdateTimerRef.current);
       }
     };
-  }, [
-    user,
-    chapter,
-    mangaId,
-    currentVisiblePanel,
-    addBookmark,
-    isLockedChapter,
-  ]);
+  }, [user, chapter, mangaId, currentVisiblePanel, addBookmark, isLockedChapter]);
 
-  // Unified scroll to panel effect with retry mechanism
   useEffect(() => {
     if (!shouldScrollToPanel) return;
 
     const targetPanelElement = panelRefs.current[shouldScrollToPanel];
 
-    if (isFetchingChapterInfo || isDetecting) {
-      return;
-    }
+    if (isFetchingChapterInfo || isDetecting) return;
 
     if (!displayedPanels.includes(shouldScrollToPanel)) {
       console.log(`Panel ${shouldScrollToPanel} not yet loaded, waiting...`);
@@ -271,16 +249,11 @@ export function MangaReader({
     }
 
     if (!targetPanelElement) {
-      console.log(
-        `Panel ${shouldScrollToPanel} element not in DOM yet, retrying...`
-      );
+      console.log(`Panel ${shouldScrollToPanel} element not in DOM yet, retrying...`);
       const retryTimeout = setTimeout(() => {
         const retryElement = panelRefs.current[shouldScrollToPanel];
         if (retryElement) {
-          retryElement.scrollIntoView({
-            behavior: "smooth",
-            block: "center",
-          });
+          retryElement.scrollIntoView({ behavior: "smooth", block: "center" });
           setShouldScrollToPanel(null);
         }
       }, 1500);
@@ -289,22 +262,13 @@ export function MangaReader({
     }
 
     const scrollTimeout = setTimeout(() => {
-      targetPanelElement.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
+      targetPanelElement.scrollIntoView({ behavior: "smooth", block: "center" });
       setShouldScrollToPanel(null);
     }, 1000);
 
     return () => clearTimeout(scrollTimeout);
-  }, [
-    shouldScrollToPanel,
-    displayedPanels,
-    isFetchingChapterInfo,
-    isDetecting,
-  ]);
+  }, [shouldScrollToPanel, displayedPanels, isFetchingChapterInfo, isDetecting]);
 
-  // Fetch chapter info from API
   const fetchChapterInfo = useCallback(async () => {
     if (isLockedChapter || !mangaSlug) return;
 
@@ -328,23 +292,11 @@ export function MangaReader({
           setDetectedTotalPanels(fallbackPanelCount);
 
           const targetPanel = shouldScrollToPanel || 10;
-          const panelsToLoad = Math.min(
-            Math.max(15, targetPanel + 10),
-            fallbackPanelCount
-          );
+          const panelsToLoad = Math.min(Math.max(15, targetPanel + 10), fallbackPanelCount);
+          setDisplayedPanels(Array.from({ length: panelsToLoad }, (_, i) => i + 1));
 
-          const initialPanels = Array.from(
-            { length: panelsToLoad },
-            (_, i) => i + 1
-          );
-          setDisplayedPanels(initialPanels);
-
-          setFetchError(
-            `Chapter ${chapter} metadata not found in database. Attempting to load panels...`
-          );
-          setDetectionError(
-            `Chapter ${chapter} metadata not found in database. Attempting to load panels...`
-          );
+          setFetchError(`Chapter ${chapter} metadata not found in database. Attempting to load panels...`);
+          setDetectionError(`Chapter ${chapter} metadata not found in database. Attempting to load panels...`);
         } else {
           throw new Error(data.error || "Failed to fetch chapter information");
         }
@@ -353,16 +305,8 @@ export function MangaReader({
           setDetectedTotalPanels(data.totalPanels);
 
           const targetPanel = shouldScrollToPanel || 10;
-          const panelsToLoad = Math.min(
-            Math.max(15, targetPanel + 10),
-            data.totalPanels
-          );
-
-          const initialPanels = Array.from(
-            { length: panelsToLoad },
-            (_, i) => i + 1
-          );
-          setDisplayedPanels(initialPanels);
+          const panelsToLoad = Math.min(Math.max(15, targetPanel + 10), data.totalPanels);
+          setDisplayedPanels(Array.from({ length: panelsToLoad }, (_, i) => i + 1));
 
           setFetchError(null);
           setDetectionError(null);
@@ -379,20 +323,11 @@ export function MangaReader({
       setDetectedTotalPanels(fallbackPanelCount);
 
       const targetPanel = shouldScrollToPanel || 10;
-      const panelsToLoad = Math.min(
-        Math.max(15, targetPanel + 10),
-        fallbackPanelCount
-      );
+      const panelsToLoad = Math.min(Math.max(15, targetPanel + 10), fallbackPanelCount);
+      setDisplayedPanels(Array.from({ length: panelsToLoad }, (_, i) => i + 1));
 
-      const initialPanels = Array.from(
-        { length: panelsToLoad },
-        (_, i) => i + 1
-      );
-      setDisplayedPanels(initialPanels);
-
-      const errorMsg = `Unable to load chapter metadata. Attempting to load panels...`;
-      setFetchError(errorMsg);
-      setDetectionError(errorMsg);
+      setFetchError(`Unable to load chapter metadata. Attempting to load panels...`);
+      setDetectionError(`Unable to load chapter metadata. Attempting to load panels...`);
     } finally {
       setIsFetchingChapterInfo(false);
       setIsDetecting(false);
@@ -404,24 +339,10 @@ export function MangaReader({
       fetchChapterInfo();
     } else if (providedTotalPanels) {
       const targetPanel = shouldScrollToPanel || 15;
-      const panelsToLoad = Math.min(
-        Math.max(15, targetPanel + 10),
-        providedTotalPanels
-      );
-
-      const initialPanels = Array.from(
-        { length: panelsToLoad },
-        (_, i) => i + 1
-      );
-      setDisplayedPanels(initialPanels);
+      const panelsToLoad = Math.min(Math.max(15, targetPanel + 10), providedTotalPanels);
+      setDisplayedPanels(Array.from({ length: panelsToLoad }, (_, i) => i + 1));
     }
-  }, [
-    fetchChapterInfo,
-    providedTotalPanels,
-    isLockedChapter,
-    shouldScrollToPanel,
-    mangaSlug,
-  ]);
+  }, [fetchChapterInfo, providedTotalPanels, isLockedChapter, shouldScrollToPanel, mangaSlug]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -437,12 +358,7 @@ export function MangaReader({
   const totalPanelsToUse = detectedTotalPanels || providedTotalPanels || 0;
 
   const loadMorePanels = useCallback(() => {
-    if (
-      isLoading ||
-      displayedPanels.length >= totalPanelsToUse ||
-      isLockedChapter
-    )
-      return;
+    if (isLoading || displayedPanels.length >= totalPanelsToUse || isLockedChapter) return;
 
     setIsLoading(true);
     setTimeout(() => {
@@ -450,11 +366,7 @@ export function MangaReader({
       const nextPanels = [];
       const batchSize = 5;
 
-      for (
-        let i = 1;
-        i <= batchSize && currentLength + i <= totalPanelsToUse;
-        i++
-      ) {
+      for (let i = 1; i <= batchSize && currentLength + i <= totalPanelsToUse; i++) {
         nextPanels.push(currentLength + i);
       }
 
@@ -474,14 +386,9 @@ export function MangaReader({
 
       const scrollThreshold = 1500;
       const scrolledToBottom =
-        container.scrollHeight - container.scrollTop - container.clientHeight <
-        scrollThreshold;
+        container.scrollHeight - container.scrollTop - container.clientHeight < scrollThreshold;
 
-      if (
-        scrolledToBottom &&
-        !isLoading &&
-        displayedPanels.length < totalPanelsToUse
-      ) {
+      if (scrolledToBottom && !isLoading && displayedPanels.length < totalPanelsToUse) {
         loadMorePanels();
       }
     };
@@ -492,15 +399,7 @@ export function MangaReader({
       handleScroll();
     }
     return () => container?.removeEventListener("scroll", handleScroll);
-  }, [
-    loadMorePanels,
-    isLoading,
-    displayedPanels.length,
-    totalPanelsToUse,
-    isLockedChapter,
-    isFetchingChapterInfo,
-    isDetecting,
-  ]);
+  }, [loadMorePanels, isLoading, displayedPanels.length, totalPanelsToUse, isLockedChapter, isFetchingChapterInfo, isDetecting]);
 
   const smoothScroll = (direction: "up" | "down") => {
     const container = scrollContainerRef.current;
@@ -512,10 +411,7 @@ export function MangaReader({
         ? container.scrollTop + scrollAmount
         : container.scrollTop - scrollAmount;
 
-    container.scrollTo({
-      top: targetScroll,
-      behavior: "smooth",
-    });
+    container.scrollTo({ top: targetScroll, behavior: "smooth" });
   };
 
   useEffect(() => {
@@ -561,7 +457,6 @@ export function MangaReader({
     };
 
     document.addEventListener("mousemove", handleMouseMove);
-
     controlsTimeoutRef.current = setTimeout(() => {
       setShowControls(false);
     }, 3000);
@@ -580,18 +475,17 @@ export function MangaReader({
     }
   }, [isFullscreen]);
 
+  // ✅ FIX: Use formatChapterForUrl for navigation hrefs
   const handlePreviousChapter = () => {
     if (previousChapter !== null && previousChapter !== undefined) {
-      window.location.href = `/manga/${mangaId}/chapter/${previousChapter}`;
+      window.location.href = `/manga/${mangaId}/chapter/${formatChapterForUrl(previousChapter)}`;
     }
   };
 
   const handleNextChapter = () => {
     if (nextChapter !== null && nextChapter !== undefined) {
-      if (nextChapter > totalChapters) {
-        return;
-      }
-      window.location.href = `/manga/${mangaId}/chapter/${nextChapter}`;
+      if (nextChapter > totalChapters) return;
+      window.location.href = `/manga/${mangaId}/chapter/${formatChapterForUrl(nextChapter)}`;
     }
   };
 
@@ -610,20 +504,13 @@ export function MangaReader({
     panelWidth !== 80 ||
     scrollSpeed !== 50;
 
-  // Loading UI component for panels
-  const PanelLoadingPlaceholder = ({
-    panelNumber,
-  }: {
-    panelNumber: number;
-  }) => (
+  const PanelLoadingPlaceholder = ({ panelNumber }: { panelNumber: number }) => (
     <div className="relative group overflow-hidden shadow-2xl border border-cyan-500/20 bg-slate-800/50 animate-pulse">
       <div className="w-full aspect-[3/4] flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
           <div className="text-center">
-            <p className="text-sm text-slate-300 font-medium">
-              Loading Panel {panelNumber}
-            </p>
+            <p className="text-sm text-slate-300 font-medium">Loading Panel {panelNumber}</p>
             <p className="text-xs text-slate-500 mt-1">Please wait...</p>
           </div>
         </div>
@@ -638,7 +525,6 @@ export function MangaReader({
     <div className="h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex flex-col overflow-hidden">
       <Header />
 
-      {/* Bookmark Saved Notification */}
       {bookmarkSaved && (
         <div className="fixed top-20 right-4 z-[100] animate-in slide-in-from-right duration-300">
           <div className="bg-gradient-to-r from-cyan-500/90 to-cyan-600/90 backdrop-blur-xl border border-cyan-400/30 rounded-lg px-4 py-3 shadow-lg shadow-cyan-500/20 flex items-center gap-3">
@@ -757,9 +643,7 @@ export function MangaReader({
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() =>
-                        setShowAdvancedControls(!showAdvancedControls)
-                      }
+                      onClick={() => setShowAdvancedControls(!showAdvancedControls)}
                       className="bg-slate-800/50 border-cyan-500/30 text-slate-200 hover:bg-slate-800/70 hover:border-cyan-400/50 disabled:opacity-50 hover:text-cyan-400 px-2"
                     >
                       <Settings
@@ -792,7 +676,6 @@ export function MangaReader({
                 className="absolute inset-0 bg-black/60 backdrop-blur-sm z-[45] animate-in fade-in duration-300"
                 onClick={() => setShowAdvancedControls(false)}
               />
-
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[50] w-[90vw] max-w-4xl animate-in zoom-in-95 duration-300">
                 <div className="bg-gradient-to-br from-slate-800/95 to-slate-900/95 backdrop-blur-xl rounded-lg p-4 md:p-6 border border-pink-500/30 shadow-2xl shadow-pink-500/20 max-h-[80vh] overflow-y-auto">
                   <div className="flex items-center justify-between mb-4 md:mb-6">
@@ -822,102 +705,29 @@ export function MangaReader({
                       </Button>
                     </div>
                   </div>
-
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-                    <div className="space-y-2 md:space-y-3">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs md:text-sm font-medium text-slate-300">
-                          🌞 Brightness
-                        </label>
-                        <span className="text-xs md:text-sm text-pink-400 font-mono">
-                          {brightness}%
-                        </span>
+                    {[
+                      { label: "🌞 Brightness", value: brightness, setter: setBrightness, min: 50, max: 150 },
+                      { label: "🎨 Contrast", value: contrast, setter: setContrast, min: 50, max: 150 },
+                      { label: "💧 Saturation", value: saturation, setter: setSaturation, min: 0, max: 200 },
+                      { label: "🔍 Panel Width", value: panelWidth, setter: setPanelWidth, min: 50, max: 150 },
+                      { label: "⚡ Scroll Speed", value: scrollSpeed, setter: setScrollSpeed, min: 25, max: 100 },
+                    ].map(({ label, value, setter, min, max }) => (
+                      <div key={label} className="space-y-2 md:space-y-3">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs md:text-sm font-medium text-slate-300">{label}</label>
+                          <span className="text-xs md:text-sm text-pink-400 font-mono">{value}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={min}
+                          max={max}
+                          value={value}
+                          onChange={(e) => setter(Number(e.target.value))}
+                          className="w-full h-2 bg-slate-700/50 rounded-lg appearance-none cursor-pointer accent-pink-500"
+                        />
                       </div>
-                      <input
-                        type="range"
-                        min="50"
-                        max="150"
-                        value={brightness}
-                        onChange={(e) => setBrightness(Number(e.target.value))}
-                        className="w-full h-2 bg-slate-700/50 rounded-lg appearance-none cursor-pointer accent-pink-500 hover:accent-pink-400 transition-all"
-                      />
-                    </div>
-
-                    <div className="space-y-2 md:space-y-3">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs md:text-sm font-medium text-slate-300">
-                          🎨 Contrast
-                        </label>
-                        <span className="text-xs md:text-sm text-pink-400 font-mono">
-                          {contrast}%
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min="50"
-                        max="150"
-                        value={contrast}
-                        onChange={(e) => setContrast(Number(e.target.value))}
-                        className="w-full h-2 bg-slate-700/50 rounded-lg appearance-none cursor-pointer accent-pink-500 hover:accent-pink-400 transition-all"
-                      />
-                    </div>
-
-                    <div className="space-y-2 md:space-y-3">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs md:text-sm font-medium text-slate-300">
-                          💧 Saturation
-                        </label>
-                        <span className="text-xs md:text-sm text-pink-400 font-mono">
-                          {saturation}%
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0"
-                        max="200"
-                        value={saturation}
-                        onChange={(e) => setSaturation(Number(e.target.value))}
-                        className="w-full h-2 bg-slate-700/50 rounded-lg appearance-none cursor-pointer accent-pink-500 hover:accent-pink-400 transition-all"
-                      />
-                    </div>
-
-                    <div className="space-y-2 md:space-y-3">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs md:text-sm font-medium text-slate-300">
-                          🔍 Panel Width
-                        </label>
-                        <span className="text-xs md:text-sm text-pink-400 font-mono">
-                          {panelWidth}%
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min="50"
-                        max="150"
-                        value={panelWidth}
-                        onChange={(e) => setPanelWidth(Number(e.target.value))}
-                        className="w-full h-2 bg-slate-700/50 rounded-lg appearance-none cursor-pointer accent-pink-500 hover:accent-pink-400 transition-all"
-                      />
-                    </div>
-
-                    <div className="space-y-2 md:space-y-3">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs md:text-sm font-medium text-slate-300">
-                          ⚡ Scroll Speed
-                        </label>
-                        <span className="text-xs md:text-sm text-pink-400 font-mono">
-                          {scrollSpeed}%
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min="25"
-                        max="100"
-                        value={scrollSpeed}
-                        onChange={(e) => setScrollSpeed(Number(e.target.value))}
-                        className="w-full h-2 bg-slate-700/50 rounded-lg appearance-none cursor-pointer accent-pink-500 hover:accent-pink-400 transition-all"
-                      />
-                    </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -927,9 +737,7 @@ export function MangaReader({
           {isFullscreen && (
             <div
               className={`absolute top-0 left-0 right-0 z-50 transition-all duration-300 ${
-                showControls
-                  ? "translate-y-0 opacity-100"
-                  : "-translate-y-full opacity-0"
+                showControls ? "translate-y-0 opacity-100" : "-translate-y-full opacity-0"
               }`}
             >
               <div className="bg-gradient-to-r from-slate-900/95 to-slate-900/80 backdrop-blur-xl border-b border-cyan-500/20 p-4">
@@ -949,9 +757,7 @@ export function MangaReader({
                       <p className="text-xs font-medium">
                         Ch {chapter}
                         {totalPanelsToUse > 0 && (
-                          <span className="text-cyan-400 ml-1">
-                            ({totalPanelsToUse})
-                          </span>
+                          <span className="text-cyan-400 ml-1">({totalPanelsToUse})</span>
                         )}
                       </p>
                     </Card>
@@ -971,24 +777,9 @@ export function MangaReader({
                   </div>
 
                   <nav className="hidden lg:flex items-center gap-8">
-                    <Link
-                      href="/"
-                      className="text-white/70 hover:text-pink-500 transition font-semibold"
-                    >
-                      Home
-                    </Link>
-                    <Link
-                      href="/library"
-                      className="text-white/70 hover:text-pink-500 transition font-semibold"
-                    >
-                      Library
-                    </Link>
-                    <Link
-                      href="/trending"
-                      className="text-white/70 hover:text-pink-500 transition font-semibold"
-                    >
-                      Trending
-                    </Link>
+                    <Link href="/" className="text-white/70 hover:text-pink-500 transition font-semibold">Home</Link>
+                    <Link href="/library" className="text-white/70 hover:text-pink-500 transition font-semibold">Library</Link>
+                    <Link href="/trending" className="text-white/70 hover:text-pink-500 transition font-semibold">Trending</Link>
                   </nav>
 
                   <div className="flex items-center gap-1">
@@ -1005,9 +796,7 @@ export function MangaReader({
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() =>
-                          setShowAdvancedControls(!showAdvancedControls)
-                        }
+                        onClick={() => setShowAdvancedControls(!showAdvancedControls)}
                         className="bg-slate-800/50 border-cyan-500/30 text-slate-200 hover:bg-slate-800/70 hover:border-cyan-400/50 disabled:opacity-50 hover:text-cyan-400 px-2"
                       >
                         <Settings
@@ -1032,7 +821,6 @@ export function MangaReader({
                 className="absolute inset-0 bg-black/60 backdrop-blur-sm z-[55] animate-in fade-in duration-300"
                 onClick={() => setShowAdvancedControls(false)}
               />
-
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[60] w-[90vw] max-w-5xl animate-in zoom-in-95 duration-300">
                 <div className="bg-gradient-to-br from-slate-800/95 to-slate-900/95 backdrop-blur-xl rounded-lg p-4 md:p-6 border border-pink-500/30 shadow-2xl shadow-pink-500/20 max-h-[80vh] overflow-y-auto">
                   <div className="flex items-center justify-between mb-4 md:mb-6">
@@ -1062,102 +850,29 @@ export function MangaReader({
                       </Button>
                     </div>
                   </div>
-
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
-                    <div className="space-y-2 md:space-y-3">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs md:text-sm font-medium text-slate-300">
-                          🌞 Brightness
-                        </label>
-                        <span className="text-xs md:text-sm text-pink-400 font-mono">
-                          {brightness}%
-                        </span>
+                    {[
+                      { label: "🌞 Brightness", value: brightness, setter: setBrightness, min: 50, max: 150 },
+                      { label: "🎨 Contrast", value: contrast, setter: setContrast, min: 50, max: 150 },
+                      { label: "💧 Saturation", value: saturation, setter: setSaturation, min: 0, max: 200 },
+                      { label: "🔍 Panel Width", value: panelWidth, setter: setPanelWidth, min: 50, max: 150 },
+                      { label: "⚡ Scroll Speed", value: scrollSpeed, setter: setScrollSpeed, min: 25, max: 100 },
+                    ].map(({ label, value, setter, min, max }) => (
+                      <div key={label} className="space-y-2 md:space-y-3">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs md:text-sm font-medium text-slate-300">{label}</label>
+                          <span className="text-xs md:text-sm text-pink-400 font-mono">{value}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={min}
+                          max={max}
+                          value={value}
+                          onChange={(e) => setter(Number(e.target.value))}
+                          className="w-full h-2 bg-slate-700/50 rounded-lg appearance-none cursor-pointer accent-pink-500"
+                        />
                       </div>
-                      <input
-                        type="range"
-                        min="50"
-                        max="150"
-                        value={brightness}
-                        onChange={(e) => setBrightness(Number(e.target.value))}
-                        className="w-full h-2 bg-slate-700/50 rounded-lg appearance-none cursor-pointer accent-pink-500 hover:accent-pink-400 transition-all"
-                      />
-                    </div>
-
-                    <div className="space-y-2 md:space-y-3">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs md:text-sm font-medium text-slate-300">
-                          🎨 Contrast
-                        </label>
-                        <span className="text-xs md:text-sm text-pink-400 font-mono">
-                          {contrast}%
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min="50"
-                        max="150"
-                        value={contrast}
-                        onChange={(e) => setContrast(Number(e.target.value))}
-                        className="w-full h-2 bg-slate-700/50 rounded-lg appearance-none cursor-pointer accent-pink-500 hover:accent-pink-400 transition-all"
-                      />
-                    </div>
-
-                    <div className="space-y-2 md:space-y-3">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs md:text-sm font-medium text-slate-300">
-                          💧 Saturation
-                        </label>
-                        <span className="text-xs md:text-sm text-pink-400 font-mono">
-                          {saturation}%
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0"
-                        max="200"
-                        value={saturation}
-                        onChange={(e) => setSaturation(Number(e.target.value))}
-                        className="w-full h-2 bg-slate-700/50 rounded-lg appearance-none cursor-pointer accent-pink-500 hover:accent-pink-400 transition-all"
-                      />
-                    </div>
-
-                    <div className="space-y-2 md:space-y-3">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs md:text-sm font-medium text-slate-300">
-                          🔍 Panel Width
-                        </label>
-                        <span className="text-xs md:text-sm text-pink-400 font-mono">
-                          {panelWidth}%
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min="50"
-                        max="150"
-                        value={panelWidth}
-                        onChange={(e) => setPanelWidth(Number(e.target.value))}
-                        className="w-full h-2 bg-slate-700/50 rounded-lg appearance-none cursor-pointer accent-pink-500 hover:accent-pink-400 transition-all"
-                      />
-                    </div>
-
-                    <div className="space-y-2 md:space-y-3">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs md:text-sm font-medium text-slate-300">
-                          ⚡ Scroll Speed
-                        </label>
-                        <span className="text-xs md:text-sm text-pink-400 font-mono">
-                          {scrollSpeed}%
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min="25"
-                        max="100"
-                        value={scrollSpeed}
-                        onChange={(e) => setScrollSpeed(Number(e.target.value))}
-                        className="w-full h-2 bg-slate-700/50 rounded-lg appearance-none cursor-pointer accent-pink-500 hover:accent-pink-400 transition-all"
-                      />
-                    </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -1172,13 +887,6 @@ export function MangaReader({
             <span className="text-xs font-medium text-center">Comments</span>
           </button>
 
-          {/* Uncomment after comments mobile overlay is ready */}
-          {/* <MobileCommentsOverlay
-            mangaId={mangaId}
-            isOpen={isCommentsOpen}
-            onClose={() => setIsCommentsOpen(false)}
-          /> */}
-
           <div
             ref={scrollContainerRef}
             className="flex-1 overflow-y-auto flex flex-col items-center gap-4 p-4 scroll-smooth"
@@ -1189,19 +897,10 @@ export function MangaReader({
             }}
           >
             <style jsx>{`
-              div::-webkit-scrollbar {
-                width: 8px;
-              }
-              div::-webkit-scrollbar-track {
-                background: transparent;
-              }
-              div::-webkit-scrollbar-thumb {
-                background: rgba(6, 182, 212, 0.3);
-                border-radius: 4px;
-              }
-              div::-webkit-scrollbar-thumb:hover {
-                background: rgba(6, 182, 212, 0.5);
-              }
+              div::-webkit-scrollbar { width: 8px; }
+              div::-webkit-scrollbar-track { background: transparent; }
+              div::-webkit-scrollbar-thumb { background: rgba(6, 182, 212, 0.3); border-radius: 4px; }
+              div::-webkit-scrollbar-thumb:hover { background: rgba(6, 182, 212, 0.5); }
             `}</style>
 
             {(isFetchingChapterInfo || isDetecting) && (
@@ -1211,37 +910,24 @@ export function MangaReader({
                   <div className="absolute inset-0 blur-xl bg-cyan-500/20 rounded-full"></div>
                 </div>
                 <div className="text-center space-y-2">
-                  <h2 className="text-xl font-bold text-slate-200">
-                    Loading Chapter Info...
-                  </h2>
-                  <p className="text-sm text-slate-500">
-                    Fetching panel data from database
-                  </p>
+                  <h2 className="text-xl font-bold text-slate-200">Loading Chapter Info...</h2>
+                  <p className="text-sm text-slate-500">Fetching panel data from database</p>
                 </div>
               </div>
             )}
 
-            {(fetchError || detectionError) &&
-              !isFetchingChapterInfo &&
-              !isDetecting && (
-                <div className="w-full max-w-4xl flex flex-col items-center justify-center min-h-[40vh] space-y-4">
-                  <AlertCircle className="w-12 h-12 text-yellow-500" />
-                  <div className="text-center space-y-2">
-                    <h2 className="text-lg font-bold text-slate-200">
-                      Error Loading Chapter
-                    </h2>
-                    <p className="text-slate-400">
-                      {fetchError || detectionError}
-                    </p>
-                    <Button
-                      onClick={fetchChapterInfo}
-                      className="mt-4 bg-cyan-600 hover:bg-cyan-700 text-white"
-                    >
-                      Retry
-                    </Button>
-                  </div>
+            {(fetchError || detectionError) && !isFetchingChapterInfo && !isDetecting && (
+              <div className="w-full max-w-4xl flex flex-col items-center justify-center min-h-[40vh] space-y-4">
+                <AlertCircle className="w-12 h-12 text-yellow-500" />
+                <div className="text-center space-y-2">
+                  <h2 className="text-lg font-bold text-slate-200">Error Loading Chapter</h2>
+                  <p className="text-slate-400">{fetchError || detectionError}</p>
+                  <Button onClick={fetchChapterInfo} className="mt-4 bg-cyan-600 hover:bg-cyan-700 text-white">
+                    Retry
+                  </Button>
                 </div>
-              )}
+              </div>
+            )}
 
             {isLockedChapter ? (
               <div className="w-full max-w-4xl flex flex-col items-center justify-center min-h-[60vh] space-y-6">
@@ -1250,20 +936,12 @@ export function MangaReader({
                   <div className="absolute inset-0 blur-xl bg-cyan-500/20 rounded-full"></div>
                 </div>
                 <div className="text-center space-y-2">
-                  <h2 className="text-2xl font-bold text-slate-200">
-                    Chapter {chapter} Not Released Yet
-                  </h2>
-                  <p className="text-slate-400">
-                    This chapter hasn't been released yet. Check back later!
-                  </p>
-                  <p className="text-sm text-slate-500">
-                    Latest available chapter: {totalChapters}
-                  </p>
+                  <h2 className="text-2xl font-bold text-slate-200">Chapter {chapter} Not Released Yet</h2>
+                  <p className="text-slate-400">This chapter hasn't been released yet. Check back later!</p>
+                  <p className="text-sm text-slate-500">Latest available chapter: {totalChapters}</p>
                 </div>
                 <Button
-                  onClick={() =>
-                    (window.location.href = `/manga/${mangaId}/chapter/${totalChapters}`)
-                  }
+                  onClick={() => (window.location.href = `/manga/${mangaId}/chapter/${totalChapters}`)}
                   className="mt-4 bg-cyan-600 hover:bg-cyan-700 text-white"
                 >
                   Go to Latest Chapter
@@ -1280,9 +958,7 @@ export function MangaReader({
                   {displayedPanels.map((panelNumber) => (
                     <div
                       key={panelNumber}
-                      ref={(el) => {
-                        panelRefs.current[panelNumber] = el;
-                      }}
+                      ref={(el) => { panelRefs.current[panelNumber] = el; }}
                       data-panel={panelNumber}
                       className="relative group overflow-hidden shadow-2xl border border-cyan-500/20 hover:border-cyan-400 transition-all hover:shadow-lg hover:shadow-cyan-500/20"
                     >
@@ -1328,10 +1004,7 @@ export function MangaReader({
                       )}
                       {nextChapter && nextChapter > totalChapters && (
                         <div className="space-y-2">
-                          <Button
-                            disabled
-                            className="bg-slate-700 text-slate-400 cursor-not-allowed"
-                          >
+                          <Button disabled className="bg-slate-700 text-slate-400 cursor-not-allowed">
                             <Lock className="w-4 h-4 mr-2" />
                             Chapter {nextChapter} - Not Released Yet
                           </Button>
@@ -1347,4 +1020,9 @@ export function MangaReader({
       </div>
     </div>
   );
+}
+
+// ✅ Helper used by handlePreviousChapter / handleNextChapter
+function formatChapterForUrl(num: number): string {
+  return Number.isInteger(num) ? String(num) : String(parseFloat(num.toFixed(2)));
 }

@@ -66,6 +66,12 @@ function ChaptersSidebarSkeleton() {
   );
 }
 
+// ── Helper ────────────────────────────────────────────────────────────────────
+
+function formatChapterForUrl(num: number): string {
+  return Number.isInteger(num) ? String(num) : String(parseFloat(num.toFixed(2)));
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function ChaptersSidebar({
@@ -138,7 +144,7 @@ export function ChaptersSidebar({
         if (data.error) { setReadChapters([]); return; }
         if (data.readChapters && Array.isArray(data.readChapters)) {
           const readChapterNumbers = data.readChapters
-            .map((ch: any) => (typeof ch === "number" ? ch : parseInt(ch, 10)))
+            .map((ch: any) => (typeof ch === "number" ? ch : parseFloat(ch))) // ✅ FIX: parseFloat not parseInt
             .filter((ch: number) => !isNaN(ch));
           setReadChapters(readChapterNumbers);
         } else {
@@ -320,12 +326,12 @@ export function ChaptersSidebar({
               chaptersList.map((chapter) => {
                 const isRead = isChapterRead(chapter.chapter_number);
                 const isLocked = isChapterLocked(chapter.chapter_number);
-                const isCurrent = currentChapter === chapter.chapter_number;
+                const isCurrent = parseFloat(String(currentChapter)) === chapter.chapter_number; // ✅ FIX
 
                 return (
                   <Link
                     key={chapter.id}
-                    href={isLocked ? "#" : `/manga/${mangaId}/chapter/${chapter.chapter_number}`}
+                    href={isLocked ? "#" : `/manga/${mangaId}/chapter/${formatChapterForUrl(chapter.chapter_number)}`} // ✅ FIX
                     className={isLocked ? "pointer-events-none" : ""}
                   >
                     <div
