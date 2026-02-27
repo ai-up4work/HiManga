@@ -34,19 +34,14 @@ interface ChaptersSidebarProps {
 function ChaptersSidebarSkeleton() {
   return (
     <>
-      {/* Header skeleton */}
       <div className="flex-shrink-0 z-20 p-4 border-b border-cyan-500/20 bg-gradient-to-r from-slate-900/95 to-slate-900/90 backdrop-blur-md">
         <div className="flex items-center justify-between">
           <div className="h-4 w-24 bg-slate-700/60 rounded-full animate-pulse" />
           <div className="h-4 w-16 bg-slate-700/60 rounded-full animate-pulse" />
         </div>
-        {/* Search skeleton */}
         <div className="mt-3 h-8 bg-slate-800/50 border border-slate-700/50 rounded-lg animate-pulse" />
-        {/* Sort button skeleton */}
         <div className="mt-2 h-8 bg-slate-800/50 border border-slate-700/50 rounded-lg animate-pulse" />
       </div>
-
-      {/* Chapter rows skeleton */}
       <div className="flex-1 overflow-hidden p-3 space-y-2">
         {Array.from({ length: 12 }).map((_, i) => (
           <div
@@ -68,10 +63,9 @@ function ChaptersSidebarSkeleton() {
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
-// FIXED - uses hyphens for Vercel ✅
 function formatChapterForUrl(num: number): string {
   if (Number.isInteger(num)) return String(num);
-  return String(parseFloat(num.toFixed(2))).replace('.', '-'); // 314.1 → "314-1"
+  return String(parseFloat(num.toFixed(2))).replace(".", "-");
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -82,45 +76,43 @@ export function ChaptersSidebar({
   chapters: totalChapters,
   userId,
 }: ChaptersSidebarProps) {
-  const [displayedChapters, setDisplayedChapters] = useState(50);
+  const BATCH = 50;
+
+  const [displayedChapters, setDisplayedChapters] = useState(BATCH);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
-  const [isSearchFocused, setIsSearchFocused] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [chaptersData, setChaptersData] = useState<Chapter[]>([]);
+
+  // ── KEY FIX: Raw data always stored ascending. Sort is applied at render
+  // time only — never stored in state — so sortOrder changes never trigger
+  // a re-fetch, and filteredLengthRef always reflects the full list length
+  // regardless of which sort direction is active.
+  const [rawChapters, setRawChapters] = useState<Chapter[]>([]);
   const [readChapters, setReadChapters] = useState<number[]>([]);
   const [usingFallback, setUsingFallback] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingReadStatus, setIsLoadingReadStatus] = useState(false);
   const [maxAvailableChapter, setMaxAvailableChapter] = useState(0);
 
-  const sanitizeTitle = (title: string | null) => {
-    if (!title) return "";
-    const parts = title.split("-");
-    const lastPart = parts[parts.length - 1].trim();
-    return lastPart.match(/^Chapter\s\d+/i) ? lastPart : title;
-  };
+  // Refs let the scroll handler read current values without stale closures
+  // and without needing to be re-registered on every render.
+  const filteredLengthRef = useRef(0);
+  const isLoadingMoreRef = useRef(false);
 
+  // ── Fetch chapters ONCE ───────────────────────────────────────────────────
   useEffect(() => {
     const fetchChapters = async () => {
       setIsLoading(true);
       try {
         const res = await fetch(`/api/manga/chapters?mangaId=${mangaId}`);
         const data = await res.json();
-
         if (data.chapters && data.chapters.length > 0) {
-          const sortedData = data.chapters.sort((a, b) =>
-            sortOrder === "desc"
-              ? b.chapter_number - a.chapter_number
-              : a.chapter_number - b.chapter_number
+          const sorted = [...data.chapters].sort(
+            (a: Chapter, b: Chapter) => a.chapter_number - b.chapter_number
           );
-          setChaptersData(sortedData);
-          const maxChapter = Math.max(
-            ...data.chapters.map((ch: Chapter) => ch.chapter_number)
-          );
-          setMaxAvailableChapter(maxChapter);
+          setRawChapters(sorted);
+          setMaxAvailableChapter(sorted[sorted.length - 1].chapter_number);
           setUsingFallback(false);
         } else {
           generateFallbackChapters();
@@ -132,52 +124,125 @@ export function ChaptersSidebar({
         setIsLoading(false);
       }
     };
-
     fetchChapters();
-  }, [mangaId, sortOrder, totalChapters]);
+    // sortOrder intentionally NOT in deps — sort is client-side only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mangaId]);
 
   useEffect(() => {
     const fetchReadChapters = async () => {
-      setIsLoadingReadStatus(true);
       try {
         const res = await fetch(`/api/manga/chapters/user-reads?mangaId=${mangaId}`);
         if (!res.ok) { setReadChapters([]); return; }
         const data = await res.json();
         if (data.error) { setReadChapters([]); return; }
         if (data.readChapters && Array.isArray(data.readChapters)) {
-          const readChapterNumbers = data.readChapters
-            .map((ch: any) => (typeof ch === "number" ? ch : parseFloat(ch))) // ✅ FIX: parseFloat not parseInt
+          const nums = data.readChapters
+            .map((ch: any) => (typeof ch === "number" ? ch : parseFloat(ch)))
             .filter((ch: number) => !isNaN(ch));
-          setReadChapters(readChapterNumbers);
+          setReadChapters(nums);
         } else {
           setReadChapters([]);
         }
       } catch (err) {
         console.warn("Could not fetch read chapters:", err);
         setReadChapters([]);
-      } finally {
-        setIsLoadingReadStatus(false);
       }
     };
     fetchReadChapters();
   }, [userId, mangaId]);
 
   const generateFallbackChapters = () => {
-    const fallbackChapters = Array.from({ length: totalChapters }, (_, i) => {
-      const chapterNumber = sortOrder === "desc" ? totalChapters - i : i + 1;
-      return {
-        id: `fallback-${chapterNumber}`,
-        chapter_number: chapterNumber,
-        title: `Chapter ${chapterNumber}`,
-        total_panels: 0,
-        published_at: new Date(Date.now() - i * 86400000).toISOString(),
-        created_at: new Date(Date.now() - i * 86400000).toISOString(),
-      };
-    });
-    setChaptersData(fallbackChapters);
+    const fallback = Array.from({ length: totalChapters }, (_, i) => ({
+      id: `fallback-${i + 1}`,
+      chapter_number: i + 1,
+      title: `Chapter ${i + 1}`,
+      total_panels: 0,
+      published_at: new Date(Date.now() - (totalChapters - i) * 86400000).toISOString(),
+      created_at: new Date(Date.now() - (totalChapters - i) * 86400000).toISOString(),
+    }));
+    setRawChapters(fallback);
     setMaxAvailableChapter(totalChapters);
     setUsingFallback(true);
   };
+
+  // ── Derived lists — pure computation, no extra state ─────────────────────
+  const sortedChapters =
+    sortOrder === "desc" ? [...rawChapters].reverse() : rawChapters;
+
+  const filteredChapters = searchQuery
+    ? sortedChapters.filter(
+        (ch) =>
+          ch.chapter_number.toString().includes(searchQuery) ||
+          ch.title?.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : sortedChapters;
+
+  // Always keep ref in sync before render so scroll handler sees current value
+  filteredLengthRef.current = filteredChapters.length;
+
+  const chaptersList = filteredChapters.slice(0, displayedChapters);
+  const hasMore = displayedChapters < filteredChapters.length;
+
+  // ── Infinite scroll via IntersectionObserver on sentinel ─────────────────
+  // More reliable than scroll distance math: fires whenever the sentinel div
+  // enters the viewport. Re-fires after each batch if sentinel is still visible.
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  const loadMore = useCallback(() => {
+    if (isLoadingMoreRef.current) return;
+    if (filteredLengthRef.current === 0) return;
+    isLoadingMoreRef.current = true;
+    setIsLoadingMore(true);
+    setTimeout(() => {
+      setDisplayedChapters((prev) => prev + 25);
+      isLoadingMoreRef.current = false;
+      setIsLoadingMore(false);
+    }, 200);
+  }, []);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const container = scrollContainerRef.current;
+    if (!sentinel || !container) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) loadMore();
+      },
+      { root: container, rootMargin: "0px 0px 200px 0px", threshold: 0 }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadMore, isLoading]);
+
+  // Reset pagination & scroll to top on sort/search change
+  useEffect(() => {
+    setDisplayedChapters(BATCH);
+    isLoadingMoreRef.current = false;
+    setIsLoadingMore(false);
+    if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+  }, [searchQuery, sortOrder]);
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  const toggleSortOrder = () =>
+    setSortOrder((prev) => (prev === "desc" ? "asc" : "desc"));
+
+  const clearSearch = () => {
+    setSearchQuery("");
+    searchInputRef.current?.blur();
+  };
+
+  const isChapterLocked = (chapterNumber: number) => {
+    if (usingFallback) return chapterNumber > totalChapters;
+    return !rawChapters.some(
+      (ch) => ch.chapter_number === chapterNumber && ch.total_panels > 0
+    );
+  };
+
+  const isChapterRead = (n: number) => readChapters.includes(n);
 
   const markChapterAsRead = async (chapterNumber: number) => {
     if (!userId) return;
@@ -195,72 +260,16 @@ export function ChaptersSidebar({
     }
   };
 
-  const handleScroll = useCallback(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-    const { scrollTop, scrollHeight, clientHeight } = container;
-    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-    if (distanceFromBottom < 500 && !isLoadingMore) {
-      setIsLoadingMore(true);
-      requestAnimationFrame(() => {
-        setTimeout(() => {
-          setDisplayedChapters((prev) => Math.min(prev + 25, chaptersData.length));
-          setIsLoadingMore(false);
-        }, 200);
-      });
-    }
-  }, [isLoadingMore, chaptersData.length]);
-
-  useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-    container.addEventListener("scroll", handleScroll, { passive: true });
-    return () => container.removeEventListener("scroll", handleScroll);
-  }, [handleScroll]);
-
-  const filteredChapters = searchQuery
-    ? chaptersData.filter(
-        (chapter) =>
-          chapter.chapter_number.toString().includes(searchQuery) ||
-          chapter.title?.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : chaptersData;
-
-  const chaptersList = filteredChapters.slice(0, displayedChapters);
-  const hasMore = displayedChapters < filteredChapters.length;
-
-  useEffect(() => {
-    setDisplayedChapters(50);
-    setIsLoadingMore(false);
-  }, [searchQuery, sortOrder]);
-
-  const toggleSortOrder = () => setSortOrder((prev) => (prev === "desc" ? "asc" : "desc"));
-  const clearSearch = () => {
-    setSearchQuery("");
-    searchInputRef.current?.blur();
-    setIsSearchFocused(false);
-  };
-
-  const isChapterLocked = (chapterNumber: number) => {
-    if (usingFallback) return chapterNumber > totalChapters;
-    const chapterExists = chaptersData.some(
-      (ch) => ch.chapter_number === chapterNumber && ch.total_panels > 0
-    );
-    return !chapterExists;
-  };
-
-  const isChapterRead = (chapterNumber: number) => readChapters.includes(chapterNumber);
-
   return (
     <div
-      className="w-full flex flex-col bg-gradient-to-b from-slate-900/40 via-slate-900/20 to-transparent backdrop-blur-xl overflow-hidden h-100dvh lg:h-full lg:relative lg:border-l lg:border-slate-700/50"
+      className="w-full flex flex-col bg-gradient-to-b from-slate-900/40 via-slate-900/20 to-transparent backdrop-blur-xl h-dvh lg:h-full lg:relative lg:border-l lg:border-slate-700/50"
       style={{ maxHeight: "100dvh", position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
     >
       {isLoading ? (
         <ChaptersSidebarSkeleton />
       ) : (
         <>
-          {/* Fixed Header */}
+          {/* Header */}
           <div className="flex-shrink-0 z-20 p-4 border-b border-cyan-500/20 bg-gradient-to-r from-slate-900/95 to-slate-900/90 backdrop-blur-md">
             <div className="flex items-center justify-between">
               <h2 className="font-bold text-sm bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
@@ -275,7 +284,7 @@ export function ChaptersSidebar({
             </div>
 
             <div className="mt-3 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none z-10" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none z-10" />
               <input
                 ref={searchInputRef}
                 type="search"
@@ -283,18 +292,17 @@ export function ChaptersSidebar({
                 placeholder="Search chapter..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                onFocus={() => setIsSearchFocused(true)}
-                onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
                 className="w-full pl-9 pr-9 py-2 text-xs bg-slate-800/50 border border-slate-700/50 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-400/50 focus:bg-slate-800/70 transition-all"
+                style={{ fontSize: "16px" }}
                 autoComplete="off"
                 autoCorrect="off"
                 autoCapitalize="off"
-                spellCheck="false"
+                spellCheck={false}
               />
               {searchQuery && (
                 <button
                   onClick={clearSearch}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-200 transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition-colors"
                   type="button"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -313,7 +321,8 @@ export function ChaptersSidebar({
 
             {searchQuery && (
               <p className="text-xs text-slate-400 mt-2">
-                Found {filteredChapters.length} chapter{filteredChapters.length !== 1 ? "s" : ""}
+                Found {filteredChapters.length} chapter
+                {filteredChapters.length !== 1 ? "s" : ""}
               </p>
             )}
           </div>
@@ -321,20 +330,26 @@ export function ChaptersSidebar({
           {/* Scrollable list */}
           <div
             ref={scrollContainerRef}
+            id="chapters-scroll"
             className="flex-1 overflow-y-auto p-3 space-y-2"
-            style={{ scrollbarWidth: "thin", scrollbarColor: "#475569 transparent" }}
           >
             {chaptersList.length > 0 ? (
               chaptersList.map((chapter) => {
                 const isRead = isChapterRead(chapter.chapter_number);
                 const isLocked = isChapterLocked(chapter.chapter_number);
-                const isCurrent = parseFloat(String(currentChapter)) === chapter.chapter_number; // ✅ FIX
+                const isCurrent =
+                  parseFloat(String(currentChapter)) === chapter.chapter_number;
 
                 return (
                   <Link
                     key={chapter.id}
-                    href={isLocked ? "#" : `/manga/${mangaId}/chapter/${formatChapterForUrl(chapter.chapter_number)}`} // ✅ FIX
+                    href={
+                      isLocked
+                        ? "#"
+                        : `/manga/${mangaId}/chapter/${formatChapterForUrl(chapter.chapter_number)}`
+                    }
                     className={isLocked ? "pointer-events-none" : ""}
+                    onClick={() => !isLocked && markChapterAsRead(chapter.chapter_number)}
                   >
                     <div
                       className={`p-3 my-1 rounded-lg transition-all duration-200 group border flex items-center justify-between active:scale-[0.98] relative overflow-hidden ${
@@ -353,12 +368,16 @@ export function ChaptersSidebar({
                           <p className={`text-sm font-semibold ${isRead ? "text-emerald-50" : "text-slate-100"}`}>
                             {chapter.title || `Chapter ${chapter.chapter_number}`}
                           </p>
-                          {isRead && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />}
+                          {isRead && (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                          )}
                         </div>
                         <p className={`text-xs ${isRead ? "text-emerald-200/60" : "text-slate-400"}`}>
                           {new Date(chapter.published_at).toLocaleDateString()}
                         </p>
-                        {isLocked && <p className="text-xs text-amber-400/70 mt-1">Not released yet</p>}
+                        {isLocked && (
+                          <p className="text-xs text-amber-400/70 mt-1">Not released yet</p>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         {isLocked ? (
@@ -381,7 +400,10 @@ export function ChaptersSidebar({
               <div className="text-center py-8">
                 <p className="text-sm text-slate-400">No chapters found</p>
                 {searchQuery && (
-                  <button onClick={clearSearch} className="mt-2 text-xs text-cyan-400 hover:text-cyan-300">
+                  <button
+                    onClick={clearSearch}
+                    className="mt-2 text-xs text-cyan-400 hover:text-cyan-300"
+                  >
                     Clear search
                   </button>
                 )}
@@ -394,6 +416,11 @@ export function ChaptersSidebar({
                 <p className="text-xs text-slate-400 mt-2">Loading more chapters...</p>
               </div>
             )}
+
+            {/* Sentinel — IntersectionObserver watches this to trigger next batch */}
+            {hasMore && (
+              <div ref={sentinelRef} className="h-4 w-full" aria-hidden="true" />
+            )}
           </div>
         </>
       )}
@@ -405,10 +432,17 @@ export function ChaptersSidebar({
           position: fixed;
           width: 100%;
         }
-        div[style*="scrollbarWidth"]::-webkit-scrollbar { width: 8px; }
-        div[style*="scrollbarWidth"]::-webkit-scrollbar-track { background: transparent; }
-        div[style*="scrollbarWidth"]::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
-        div[style*="scrollbarWidth"]::-webkit-scrollbar-thumb:hover { background: #64748b; }
+        #chapters-scroll {
+          scrollbar-width: thin;
+          scrollbar-color: #475569 transparent;
+        }
+        #chapters-scroll::-webkit-scrollbar { width: 6px; }
+        #chapters-scroll::-webkit-scrollbar-track { background: transparent; }
+        #chapters-scroll::-webkit-scrollbar-thumb {
+          background: #475569;
+          border-radius: 4px;
+        }
+        #chapters-scroll::-webkit-scrollbar-thumb:hover { background: #64748b; }
         @supports (-webkit-touch-callout: none) {
           input[type="search"] { font-size: 16px; }
         }
