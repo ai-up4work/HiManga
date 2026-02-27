@@ -283,7 +283,7 @@ export function ChaptersSidebar({
               )}
             </div>
 
-            <div className="mt-3 relative">
+            <div className="hidden lg:block mt-3 relative">              
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none z-10" />
               <input
                 ref={searchInputRef}
