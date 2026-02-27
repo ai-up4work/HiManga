@@ -91,10 +91,10 @@ function StickyBottomAd() {
 
   return (
     <div className="flex-shrink-0 border-t border-slate-700/40 bg-slate-900/95 backdrop-blur-md">
-      <p className="text-[9px] text-slate-600 text-center pt-1 select-none tracking-wide uppercase">
+      {/* <p className="text-[9px] text-slate-600 text-center pt-1 select-none tracking-wide uppercase">
         Advertisement
       </p>
-      <div style={{ minHeight: "90px", width: "100%" }} />
+      <div style={{ minHeight: "90px", width: "100%" }} /> */}
     </div>
   );
 }
