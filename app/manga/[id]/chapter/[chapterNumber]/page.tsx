@@ -14,7 +14,9 @@ interface ChapterPageProps {
 export default function ChapterPage({ params }: ChapterPageProps) {
   const { id, chapterNumber } = use(params);
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
-  const chapterNum = Number.parseFloat(chapterNumber);
+  const chapterNum = chapterNumber.includes('-')
+  ? parseFloat(chapterNumber.replace('-', '.'))  // "314-1" → 314.1
+  : parseFloat(chapterNumber);           
 
   const {
     favoriteMangas: mangas,

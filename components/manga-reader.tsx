@@ -1024,5 +1024,6 @@ export function MangaReader({
 
 // ✅ Helper used by handlePreviousChapter / handleNextChapter
 function formatChapterForUrl(num: number): string {
-  return Number.isInteger(num) ? String(num) : String(parseFloat(num.toFixed(2)));
+  if (Number.isInteger(num)) return String(num);
+  return String(parseFloat(num.toFixed(2))).replace('.', '-'); // 314.1 → "314-1"
 }
