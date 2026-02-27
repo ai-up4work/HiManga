@@ -523,7 +523,7 @@ export function MangaReader({
 
   return (
     <div className="h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex flex-col overflow-hidden">
-      <Header />
+    {!isFullscreen && <Header />}
 
       {bookmarkSaved && (
         <div className="fixed top-20 right-4 z-[100] animate-in slide-in-from-right duration-300">
