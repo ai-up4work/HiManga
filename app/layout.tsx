@@ -110,9 +110,9 @@ export default function RootLayout({
         {globalZoneId && (
           <script
             dangerouslySetInnerHTML={{
-              __html: `(function(s){s.dataset.zone='${globalZoneId}',s.src='https://nap5k.com/tag.min.js'})([document.documentElement,document.body].filter(Boolean).pop().appendChild(document.createElement('script')))`,
+              __html: `(function(s){s.dataset.zone='10662299',s.src='https://nap5k.com/tag.min.js'})([document.documentElement, document.body].filter(Boolean).pop().appendChild(document.createElement('script')))`,
             }}
-          />
+/>
         )}
 
         {/* Explicit meta tags for WhatsApp */}
