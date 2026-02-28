@@ -11,18 +11,16 @@ export async function POST(req: NextRequest) {
   try {
     const { manga_id, chapter_number } = await req.json();
 
-    // Get ALL keys related to this manga — no format matching needed
+    // Step 1 — delete all related Redis keys
     const patterns = [
       `chapters-list:${manga_id}`,
-      `chapter-info:${manga_id}:*`,  // wildcard — clears regardless of number format
-      `chapter-info:*:${chapter_number}*`, // catches any format variation of the chapter
+      `chapter-info:${manga_id}:*`,
     ];
 
     let totalCleared = 0;
 
     for (const pattern of patterns) {
       if (pattern.includes("*")) {
-        // Use SCAN for wildcard patterns — never use KEYS in production
         let cursor = 0;
         do {
           const [nextCursor, keys] = await redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
@@ -33,14 +31,29 @@ export async function POST(req: NextRequest) {
           }
         } while (cursor !== 0);
       } else {
-        // Exact key — direct delete
         const deleted = await redis.del(pattern);
         totalCleared += deleted;
       }
     }
 
-    console.log(`[Cache Clear] Cleared ${totalCleared} keys for manga=${manga_id} chapter=${chapter_number}`);
-    return NextResponse.json({ success: true, cleared: totalCleared });
+    console.log(`[Cache Clear] Cleared ${totalCleared} keys for manga=${manga_id}`);
+
+    // Step 2 — immediately re-warm the cache with fresh data
+    // This prevents the race condition where a user request
+    // refills the cache before the new chapter is visible
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://yoursite.com";
+    const warmUrl = `${baseUrl}/api/manga/chapters?mangaId=${manga_id}&skipCache=true`;
+
+    const warmResponse = await fetch(warmUrl);
+    const warmData = await warmResponse.json();
+
+    console.log(`[Cache Clear] Re-warmed cache with ${warmData.chapters?.length ?? 0} chapters`);
+
+    return NextResponse.json({ 
+      success: true, 
+      cleared: totalCleared,
+      rewarmed: warmData.chapters?.length ?? 0
+    });
 
   } catch (error) {
     console.error("[Cache Clear] Error:", error);
