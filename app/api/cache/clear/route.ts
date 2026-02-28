@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     // 1. Delete chapters-list:{manga_id}
     totalCleared += await redis.del(`chapters-list:${manga_id}`);
 
-    // 2. Delete chapter-info:{manga_id}:* — only this manga's chapter info keys
+    // 2. Delete chapter-info:{manga_id}:*
     let cursor = 0;
     do {
       const [nextCursor, keys] = await redis.scan(
@@ -39,23 +39,34 @@ export async function POST(req: NextRequest) {
 
     console.log(`[Cache Clear] Cleared ${totalCleared} keys for manga=${manga_id}`);
 
-    // 3. Re-warm chapters-list immediately with fresh data
+    // 3. Re-warm — hardcode the URL as fallback in case env var missing
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://www.himanga.fun";
+    
+    console.log(`[Cache Clear] Re-warming from: ${baseUrl}`);
+    
     let rewarmedCount = 0;
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL;
-    if (baseUrl) {
+    try {
       const warmResponse = await fetch(
-        `${baseUrl}/api/manga/chapters?mangaId=${manga_id}&skipCache=true`
+        `${baseUrl}/api/manga/chapters?mangaId=${manga_id}&skipCache=true`,
+        { cache: "no-store" }
       );
-      const warmData = await warmResponse.json();
-      rewarmedCount = warmData.chapters?.length ?? 0;
-      console.log(`[Cache Clear] Re-warmed with ${rewarmedCount} chapters`);
+      
+      if (!warmResponse.ok) {
+        console.error(`[Cache Clear] Re-warm failed: ${warmResponse.status} ${warmResponse.statusText}`);
+      } else {
+        const warmData = await warmResponse.json();
+        rewarmedCount = warmData.chapters?.length ?? 0;
+        console.log(`[Cache Clear] Re-warmed with ${rewarmedCount} chapters`);
+      }
+    } catch (warmError) {
+      console.error(`[Cache Clear] Re-warm fetch error:`, warmError);
     }
 
-    // Return counts so they show in net._http_response → response_body
     return NextResponse.json({ 
       success: true, 
       cleared: totalCleared,
-      rewarmed: rewarmedCount  // ← now visible in SQL response_body check
+      rewarmed: rewarmedCount,
+      baseUrl // log this so we can see what URL was used
     });
 
   } catch (error) {
