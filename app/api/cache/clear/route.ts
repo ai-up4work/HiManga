@@ -11,15 +11,36 @@ export async function POST(req: NextRequest) {
   try {
     const { manga_id, chapter_number } = await req.json();
 
-    const keysToDelete = [
+    // Get ALL keys related to this manga — no format matching needed
+    const patterns = [
       `chapters-list:${manga_id}`,
-      `chapter-info:${manga_id}:${chapter_number}`,
+      `chapter-info:${manga_id}:*`,  // wildcard — clears regardless of number format
+      `chapter-info:*:${chapter_number}*`, // catches any format variation of the chapter
     ];
 
-    await redis.del(...keysToDelete);
+    let totalCleared = 0;
 
-    console.log(`[Cache Clear] Cleared: ${keysToDelete.join(", ")}`);
-    return NextResponse.json({ success: true, cleared: keysToDelete });
+    for (const pattern of patterns) {
+      if (pattern.includes("*")) {
+        // Use SCAN for wildcard patterns — never use KEYS in production
+        let cursor = 0;
+        do {
+          const [nextCursor, keys] = await redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
+          cursor = Number(nextCursor);
+          if (keys.length > 0) {
+            await redis.del(...keys);
+            totalCleared += keys.length;
+          }
+        } while (cursor !== 0);
+      } else {
+        // Exact key — direct delete
+        const deleted = await redis.del(pattern);
+        totalCleared += deleted;
+      }
+    }
+
+    console.log(`[Cache Clear] Cleared ${totalCleared} keys for manga=${manga_id} chapter=${chapter_number}`);
+    return NextResponse.json({ success: true, cleared: totalCleared });
 
   } catch (error) {
     console.error("[Cache Clear] Error:", error);
