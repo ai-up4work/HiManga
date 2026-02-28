@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     // Step 2 — immediately re-warm the cache with fresh data
     // This prevents the race condition where a user request
     // refills the cache before the new chapter is visible
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://yoursite.com";
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://www.himanga.fun";
     const warmUrl = `${baseUrl}/api/manga/chapters?mangaId=${manga_id}&skipCache=true`;
 
     const warmResponse = await fetch(warmUrl);
