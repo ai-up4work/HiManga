@@ -40,16 +40,23 @@ export async function POST(req: NextRequest) {
     console.log(`[Cache Clear] Cleared ${totalCleared} keys for manga=${manga_id}`);
 
     // 3. Re-warm chapters-list immediately with fresh data
+    let rewarmedCount = 0;
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL;
     if (baseUrl) {
       const warmResponse = await fetch(
         `${baseUrl}/api/manga/chapters?mangaId=${manga_id}&skipCache=true`
       );
       const warmData = await warmResponse.json();
-      console.log(`[Cache Clear] Re-warmed with ${warmData.chapters?.length ?? 0} chapters`);
+      rewarmedCount = warmData.chapters?.length ?? 0;
+      console.log(`[Cache Clear] Re-warmed with ${rewarmedCount} chapters`);
     }
 
-    return NextResponse.json({ success: true, cleared: totalCleared });
+    // Return counts so they show in net._http_response → response_body
+    return NextResponse.json({ 
+      success: true, 
+      cleared: totalCleared,
+      rewarmed: rewarmedCount  // ← now visible in SQL response_body check
+    });
 
   } catch (error) {
     console.error("[Cache Clear] Error:", error);
