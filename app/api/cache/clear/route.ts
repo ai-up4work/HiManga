@@ -9,49 +9,37 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { manga_id } = await req.json();
+    const { manga_id, chapter_number } = await req.json();
 
-    if (!manga_id) {
-      return NextResponse.json({ error: "No manga_id" }, { status: 400 });
-    }
+    // Get ALL keys related to this manga — no format matching needed
+    const patterns = [
+      `chapters-list:${manga_id}`,
+      `chapter-info:${manga_id}:*`,  // wildcard — clears regardless of number format
+      `chapter-info:*:${chapter_number}*`, // catches any format variation of the chapter
+    ];
 
     let totalCleared = 0;
 
-    // 1. Delete exact chapters-list key
-    const chaptersListKey = `chapters-list:${manga_id}`;
-    totalCleared += await redis.del(chaptersListKey);
-
-    // 2. Delete all chapter-info keys for this manga using SCAN
-    // Pattern: chapter-info:{manga_id}:* 
-    // This only matches chapter-info keys, nothing else
-    let cursor = 0;
-    do {
-      const [nextCursor, keys] = await redis.scan(
-        cursor,
-        "MATCH",
-        `chapter-info:${manga_id}:*`,
-        "COUNT",
-        100
-      );
-      cursor = Number(nextCursor);
-      if (keys.length > 0) {
-        await redis.del(...keys);
-        totalCleared += keys.length;
+    for (const pattern of patterns) {
+      if (pattern.includes("*")) {
+        // Use SCAN for wildcard patterns — never use KEYS in production
+        let cursor = 0;
+        do {
+          const [nextCursor, keys] = await redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
+          cursor = Number(nextCursor);
+          if (keys.length > 0) {
+            await redis.del(...keys);
+            totalCleared += keys.length;
+          }
+        } while (cursor !== 0);
+      } else {
+        // Exact key — direct delete
+        const deleted = await redis.del(pattern);
+        totalCleared += deleted;
       }
-    } while (cursor !== 0);
-
-    console.log(`[Cache Clear] Cleared ${totalCleared} keys for manga=${manga_id}`);
-
-    // 3. Re-warm chapters-list cache immediately with fresh data
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL;
-    if (baseUrl) {
-      const warmResponse = await fetch(
-        `${baseUrl}/api/manga/chapters?mangaId=${manga_id}&skipCache=true`
-      );
-      const warmData = await warmResponse.json();
-      console.log(`[Cache Clear] Re-warmed with ${warmData.chapters?.length ?? 0} chapters`);
     }
 
+    console.log(`[Cache Clear] Cleared ${totalCleared} keys for manga=${manga_id} chapter=${chapter_number}`);
     return NextResponse.json({ success: true, cleared: totalCleared });
 
   } catch (error) {
