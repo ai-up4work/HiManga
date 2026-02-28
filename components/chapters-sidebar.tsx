@@ -99,7 +99,10 @@ export function ChaptersSidebar({
     const fetchChapters = async () => {
       setIsLoading(true);
       try {
-        const res = await fetch(`/api/manga/chapters?mangaId=${mangaId}`);
+        // Add timestamp to bust browser cache
+        const res = await fetch(`/api/manga/chapters?mangaId=${mangaId}&t=${Date.now()}`, {
+          cache: "no-store",
+        });
         const data = await res.json();
         if (data.chapters && data.chapters.length > 0) {
           const sorted = [...data.chapters].sort(
