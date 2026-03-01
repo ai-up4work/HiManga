@@ -67,8 +67,6 @@ function formatChapterForUrl(num: number): string {
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
-// Note: Monetag In-Page Push is handled globally in layout.tsx
-// No ad script needed here
 
 export function ChaptersSidebar({
   mangaId,
@@ -99,7 +97,6 @@ export function ChaptersSidebar({
     const fetchChapters = async () => {
       setIsLoading(true);
       try {
-        // Add timestamp to bust browser cache
         const res = await fetch(`/api/manga/chapters?mangaId=${mangaId}&t=${Date.now()}`, {
           cache: "no-store",
         });
@@ -125,7 +122,10 @@ export function ChaptersSidebar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mangaId]);
 
+  // ── Fetch read chapters (only when userId is available) ───────────────────
   useEffect(() => {
+
+
     const fetchReadChapters = async () => {
       try {
         const res = await fetch(`/api/manga/chapters/user-reads?mangaId=${mangaId}`);
@@ -145,8 +145,9 @@ export function ChaptersSidebar({
         setReadChapters([]);
       }
     };
+
     fetchReadChapters();
-  }, [userId, mangaId]);
+  }, [userId, mangaId]); // Re-runs if userId or mangaId changes
 
   const generateFallbackChapters = () => {
     const fallback = Array.from({ length: totalChapters }, (_, i) => ({

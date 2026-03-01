@@ -11,14 +11,22 @@ const supabase = createClient(
 );
 
 function getCacheKey(userId: string, mangaId?: string): string {
-  return mangaId 
+  return mangaId
     ? `user-reads:${userId}:${mangaId}`
     : `user-reads:${userId}:all`;
 }
 
 async function invalidateUserReadsCache(userId: string, mangaId?: string) {
   if (mangaId) await redis.del(getCacheKey(userId, mangaId));
-  await redis.del(getCacheKey(userId)); // always invalidate the "all" cache too
+  await redis.del(getCacheKey(userId));
+}
+
+// ── DB stores chapters as text[] — always normalize to numbers on the way out
+function normalizeChapters(chapters: any[]): number[] {
+  return (chapters || [])
+    .map((ch) => parseFloat(String(ch)))
+    .filter((ch) => !isNaN(ch))
+    .sort((a, b) => a - b);
 }
 
 export async function GET(req: NextRequest) {
@@ -35,18 +43,18 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // ✅ Redis cache check
   const cacheKey = getCacheKey(userId, mangaId || undefined);
   if (!skipCache) {
-    const cached = await redis.get(cacheKey);
-    if (cached) {
-      console.log(`[User Reads] Cache HIT: user=${userId}, manga=${mangaId || 'all'}`);
-      return NextResponse.json(JSON.parse(cached as string), {
-        headers: {
-          "Cache-Control": "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400",
-          "X-Cache": "HIT",
-        },
-      });
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        console.log(`[User Reads] Cache HIT: user=${userId}, manga=${mangaId || 'all'}`);
+        return NextResponse.json(JSON.parse(cached as string), {
+          headers: { "Cache-Control": "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400", "X-Cache": "HIT" },
+        });
+      }
+    } catch (cacheErr) {
+      console.warn("[User Reads] Redis GET error:", cacheErr);
     }
   }
 
@@ -66,56 +74,38 @@ export async function GET(req: NextRequest) {
 
     if (error) {
       console.error("Supabase error:", error);
-      return NextResponse.json(
-        { error: error.message, readChapters: [] },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: error.message, readChapters: [] }, { status: 500 });
     }
 
     if (mangaId) {
       const mangaRead = data?.[0];
-      const responseData = {
-        mangaId,
-        readChapters: mangaRead?.chapters || [],
-      };
+      // ✅ Normalize text[] → number[] before returning
+      const readChapters = normalizeChapters(mangaRead?.chapters || []);
+      const responseData = { mangaId, readChapters };
 
-      // ✅ Store in Redis — 1 hour since read status changes often
-      await redis.set(cacheKey, JSON.stringify(responseData), 'EX', TTL.HOUR);
+      try { await redis.set(cacheKey, JSON.stringify(responseData), 'EX', TTL.HOUR); } catch {}
 
       return NextResponse.json(responseData, {
-        headers: {
-          "Cache-Control": "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400",
-          "X-Cache": "MISS",
-        },
+        headers: { "Cache-Control": "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400", "X-Cache": "MISS" },
       });
     }
 
     const userReads = data?.map((item) => ({
       mangaId: item.manga_id,
-      readChapters: item.chapters || [],
+      // ✅ Normalize text[] → number[] for each manga
+      readChapters: normalizeChapters(item.chapters || []),
     })) || [];
 
-    const responseData = {
-      userId,
-      reads: userReads,
-      totalManga: userReads.length,
-    };
+    const responseData = { userId, reads: userReads, totalManga: userReads.length };
 
-    // ✅ Store in Redis
-    await redis.set(cacheKey, JSON.stringify(responseData), 'EX', TTL.HOUR);
+    try { await redis.set(cacheKey, JSON.stringify(responseData), 'EX', TTL.HOUR); } catch {}
 
     return NextResponse.json(responseData, {
-      headers: {
-        "Cache-Control": "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400",
-        "X-Cache": "MISS",
-      },
+      headers: { "Cache-Control": "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400", "X-Cache": "MISS" },
     });
   } catch (err) {
     console.error("Unexpected error:", err);
-    return NextResponse.json(
-      { error: "Internal server error", readChapters: [] },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error", readChapters: [] }, { status: 500 });
   }
 }
 
@@ -140,24 +130,27 @@ export async function POST(req: NextRequest) {
       .eq("manga_id", mangaId)
       .single();
 
-    let currentChapters: number[] = [];
+    // ✅ Normalize existing text[] chapters to numbers first
+    let currentChapters: number[] = normalizeChapters(
+      existingRecord && !fetchError ? (existingRecord.chapters || []) : []
+    );
 
-    if (existingRecord && !fetchError) {
-      currentChapters = existingRecord.chapters || [];
-    }
-
-    if (!currentChapters.includes(chapterNumber)) {
-      currentChapters.push(chapterNumber);
+    const numChapter = parseFloat(String(chapterNumber));
+    if (!isNaN(numChapter) && !currentChapters.includes(numChapter)) {
+      currentChapters.push(numChapter);
       currentChapters.sort((a, b) => a - b);
     }
 
-    const { data, error } = await supabase
+    // ✅ Store back as strings to match text[] column type
+    const chaptersAsStrings = currentChapters.map(String);
+
+    const { error } = await supabase
       .from("user_reads")
       .upsert(
         {
           user_id: userId,
           manga_id: mangaId,
-          chapters: currentChapters,
+          chapters: chaptersAsStrings,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "user_id,manga_id" }
@@ -169,12 +162,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // ✅ Invalidate Redis cache after update
     await invalidateUserReadsCache(userId, mangaId);
 
     return NextResponse.json({
       success: true,
-      readChapters: currentChapters,
+      readChapters: currentChapters, // return as numbers for the frontend
       message: `Chapter ${chapterNumber} marked as read`,
       cacheInvalidated: true,
     });
@@ -210,15 +202,16 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Record not found" }, { status: 404 });
     }
 
-    const currentChapters: number[] = existingRecord.chapters || [];
-    const updatedChapters = currentChapters.filter(
-      (ch) => ch !== parseInt(chapterNumber)
-    );
+    // ✅ Normalize, filter, then store back as strings
+    const currentChapters = normalizeChapters(existingRecord.chapters || []);
+    const numToRemove = parseFloat(chapterNumber);
+    const updatedChapters = currentChapters.filter((ch) => ch !== numToRemove);
+    const updatedChaptersAsStrings = updatedChapters.map(String);
 
     const { error: updateError } = await supabase
       .from("user_reads")
       .update({
-        chapters: updatedChapters,
+        chapters: updatedChaptersAsStrings,
         updated_at: new Date().toISOString(),
       })
       .eq("user_id", userId)
@@ -229,12 +222,11 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
-    // ✅ Invalidate Redis cache after deletion
     await invalidateUserReadsCache(userId, mangaId);
 
     return NextResponse.json({
       success: true,
-      readChapters: updatedChapters,
+      readChapters: updatedChapters, // return as numbers for the frontend
       message: `Chapter ${chapterNumber} unmarked as read`,
       cacheInvalidated: true,
     });
