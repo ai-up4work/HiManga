@@ -24,7 +24,7 @@ interface ChaptersSidebarProps {
   mangaId: string;
   currentChapter?: number;
   chapters: number;
-  userId?: string;
+  userId?: string; // kept for display purposes (e.g. read count) but NOT used for fetching
 }
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
@@ -122,13 +122,14 @@ export function ChaptersSidebar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mangaId]);
 
-  // ── Fetch read chapters (only when userId is available) ───────────────────
+  // ── Fetch read chapters ───────────────────────────────────────────────────
+  // ✅ No userId guard — the API reads userId from the cookie server-side.
+  // The prop is unreliable on Vercel (can be undefined even when logged in).
   useEffect(() => {
-
-
     const fetchReadChapters = async () => {
       try {
         const res = await fetch(`/api/manga/chapters/user-reads?mangaId=${mangaId}`);
+        // 400 = not logged in, just show no highlights — not an error
         if (!res.ok) { setReadChapters([]); return; }
         const data = await res.json();
         if (data.error) { setReadChapters([]); return; }
@@ -147,7 +148,7 @@ export function ChaptersSidebar({
     };
 
     fetchReadChapters();
-  }, [userId, mangaId]); // Re-runs if userId or mangaId changes
+  }, [mangaId]); // ✅ only depends on mangaId — not userId prop
 
   const generateFallbackChapters = () => {
     const fallback = Array.from({ length: totalChapters }, (_, i) => ({
@@ -237,15 +238,15 @@ export function ChaptersSidebar({
 
   const isChapterRead = (n: number) => readChapters.includes(n);
 
+  // ✅ No userId guard — API reads userId from cookie server-side
   const markChapterAsRead = async (chapterNumber: number) => {
-    if (!userId) return;
     try {
       const res = await fetch("/api/manga/chapters/user-reads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, mangaId, chapterNumber }),
+        body: JSON.stringify({ mangaId, chapterNumber }),
       });
-      if (!res.ok) return;
+      if (!res.ok) return; // silently ignore if not logged in
       const data = await res.json();
       if (data.success && data.readChapters) setReadChapters(data.readChapters);
     } catch (err) {
