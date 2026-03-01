@@ -89,14 +89,13 @@ export function ChaptersSidebar({
   const [isLoading, setIsLoading] = useState(true);
   const [maxAvailableChapter, setMaxAvailableChapter] = useState(0);
 
-  // ✅ Ref to the current chapter's DOM element for scrolling into view
   const currentChapterRef = useRef<HTMLDivElement>(null);
   const hasScrolledToCurrentRef = useRef(false);
 
   const filteredLengthRef = useRef(0);
   const isLoadingMoreRef = useRef(false);
 
-  // ── Fetch chapters (cached — chapter list rarely changes) ─────────────────
+  // ── Fetch chapters ────────────────────────────────────────────────────────
   useEffect(() => {
     const fetchChapters = async () => {
       setIsLoading(true);
@@ -126,7 +125,7 @@ export function ChaptersSidebar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mangaId]);
 
-  // ── Fetch read chapters (never cached) ───────────────────────────────────
+  // ── Fetch read chapters ───────────────────────────────────────────────────
   useEffect(() => {
     const fetchReadChapters = async () => {
       try {
@@ -154,33 +153,43 @@ export function ChaptersSidebar({
     fetchReadChapters();
   }, [mangaId]);
 
-// ── Scroll current chapter into center of viewport ────────────────────────
-useEffect(() => {
-  if (isLoading) return;
-  if (!currentChapterRef.current) return;
-  if (!scrollContainerRef.current) return;
+  // ── Scroll current chapter into center — production-safe ─────────────────
+  // Uses double RAF instead of setTimeout so it runs after the browser has
+  // actually painted, and getBoundingClientRect instead of offsetTop so it
+  // works correctly regardless of CSS minification or ancestor positioning.
+  useEffect(() => {
+    if (isLoading) return;
 
-  hasScrolledToCurrentRef.current = false;
+    // Reset flag whenever sort/search/chapters change so we re-center
+    hasScrolledToCurrentRef.current = false;
 
-  const timer = setTimeout(() => {
-    if (hasScrolledToCurrentRef.current) return;
-    const container = scrollContainerRef.current;
-    const item = currentChapterRef.current;
-    if (!container || !item) return;
+    let raf2: number;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        if (hasScrolledToCurrentRef.current) return;
+        const container = scrollContainerRef.current;
+        const item = currentChapterRef.current;
+        if (!container || !item) return;
 
-    const containerHeight = container.clientHeight;
-    const itemOffsetTop = item.offsetTop;
-    const itemHeight = item.clientHeight;
+        const containerRect = container.getBoundingClientRect();
+        const itemRect = item.getBoundingClientRect();
 
-    // Center the item within the scroll container
-    const scrollTo = itemOffsetTop - containerHeight / 2 + itemHeight / 2;
-    container.scrollTop = Math.max(0, scrollTo);
+        // Item's top relative to the container's scrollable area
+        const relativeTop =
+          itemRect.top - containerRect.top + container.scrollTop;
+        const scrollTo =
+          relativeTop - container.clientHeight / 2 + item.clientHeight / 2;
 
-    hasScrolledToCurrentRef.current = true;
-  }, 150);
+        container.scrollTop = Math.max(0, scrollTo);
+        hasScrolledToCurrentRef.current = true;
+      });
+    });
 
-  return () => clearTimeout(timer);
-}, [isLoading, sortOrder, searchQuery, rawChapters]);
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [isLoading, sortOrder, searchQuery, rawChapters]);
 
   const generateFallbackChapters = () => {
     const fallback = Array.from({ length: totalChapters }, (_, i) => ({
@@ -188,8 +197,12 @@ useEffect(() => {
       chapter_number: i + 1,
       title: `Chapter ${i + 1}`,
       total_panels: 0,
-      published_at: new Date(Date.now() - (totalChapters - i) * 86400000).toISOString(),
-      created_at: new Date(Date.now() - (totalChapters - i) * 86400000).toISOString(),
+      published_at: new Date(
+        Date.now() - (totalChapters - i) * 86400000
+      ).toISOString(),
+      created_at: new Date(
+        Date.now() - (totalChapters - i) * 86400000
+      ).toISOString(),
     }));
     setRawChapters(fallback);
     setMaxAvailableChapter(totalChapters);
@@ -210,13 +223,13 @@ useEffect(() => {
 
   filteredLengthRef.current = filteredChapters.length;
 
-  // ✅ When current chapter would be outside the displayed batch, expand batch to include it
   const currentChapterIndex = filteredChapters.findIndex(
     (ch) => ch.chapter_number === parseFloat(String(currentChapter))
   );
-  const minDisplayed = currentChapterIndex >= 0
-    ? Math.max(BATCH, currentChapterIndex + 1)
-    : BATCH;
+  const minDisplayed =
+    currentChapterIndex >= 0
+      ? Math.max(BATCH, currentChapterIndex + 1)
+      : BATCH;
 
   const effectiveDisplayed = Math.max(displayedChapters, minDisplayed);
   const chaptersList = filteredChapters.slice(0, effectiveDisplayed);
@@ -258,7 +271,6 @@ useEffect(() => {
     setDisplayedChapters(BATCH);
     isLoadingMoreRef.current = false;
     setIsLoadingMore(false);
-    // Don't reset scroll here — the scroll effect handles it
   }, [searchQuery, sortOrder]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -369,7 +381,6 @@ useEffect(() => {
                     }
                     className={isLocked ? "pointer-events-none" : ""}
                   >
-                    {/* ✅ Attach ref only to the current chapter item */}
                     <div
                       ref={isCurrent ? currentChapterRef : undefined}
                       className={`p-3 my-1 rounded-lg transition-all duration-200 group border flex items-center justify-between active:scale-[0.98] relative overflow-hidden ${
