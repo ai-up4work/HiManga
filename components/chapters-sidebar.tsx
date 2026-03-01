@@ -154,30 +154,33 @@ export function ChaptersSidebar({
     fetchReadChapters();
   }, [mangaId]);
 
-  // ── Scroll current chapter into center of viewport ────────────────────────
-  // Runs after chapters load AND after sort/search changes
-  // Uses a small delay to ensure the DOM has rendered the current chapter item
-  useEffect(() => {
-    if (isLoading) return;
-    if (!currentChapterRef.current) return;
-    if (!scrollContainerRef.current) return;
+// ── Scroll current chapter into center of viewport ────────────────────────
+useEffect(() => {
+  if (isLoading) return;
+  if (!currentChapterRef.current) return;
+  if (!scrollContainerRef.current) return;
 
-    // Reset scroll flag when sort/search changes so we re-center
-    hasScrolledToCurrentRef.current = false;
+  hasScrolledToCurrentRef.current = false;
 
-    const timer = setTimeout(() => {
-      if (hasScrolledToCurrentRef.current) return;
-      if (!currentChapterRef.current || !scrollContainerRef.current) return;
+  const timer = setTimeout(() => {
+    if (hasScrolledToCurrentRef.current) return;
+    const container = scrollContainerRef.current;
+    const item = currentChapterRef.current;
+    if (!container || !item) return;
 
-      currentChapterRef.current.scrollIntoView({
-        block: "center",
-        behavior: "smooth",
-      });
-      hasScrolledToCurrentRef.current = true;
-    }, 150); // small delay to let DOM render
+    const containerHeight = container.clientHeight;
+    const itemOffsetTop = item.offsetTop;
+    const itemHeight = item.clientHeight;
 
-    return () => clearTimeout(timer);
-  }, [isLoading, sortOrder, searchQuery, rawChapters]);
+    // Center the item within the scroll container
+    const scrollTo = itemOffsetTop - containerHeight / 2 + itemHeight / 2;
+    container.scrollTop = Math.max(0, scrollTo);
+
+    hasScrolledToCurrentRef.current = true;
+  }, 150);
+
+  return () => clearTimeout(timer);
+}, [isLoading, sortOrder, searchQuery, rawChapters]);
 
   const generateFallbackChapters = () => {
     const fallback = Array.from({ length: totalChapters }, (_, i) => ({
