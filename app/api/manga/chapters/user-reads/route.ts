@@ -18,7 +18,7 @@ function getCacheKey(userId: string, mangaId?: string): string {
 
 async function invalidateUserReadsCache(userId: string, mangaId?: string) {
   if (mangaId) await redis.del(getCacheKey(userId, mangaId));
-  await redis.del(getCacheKey(userId));
+  await redis.del(getCacheKey(userId)); // always invalidate the "all" cache too
 }
 
 // ── DB stores chapters as text[] — always normalize to numbers on the way out
@@ -28,6 +28,13 @@ function normalizeChapters(chapters: any[]): number[] {
     .filter((ch) => !isNaN(ch))
     .sort((a, b) => a - b);
 }
+
+// ── Cache headers ─────────────────────────────────────────────────────────────
+// "public" would allow CDNs to cache personal user data — never do that.
+// "private" = only the user's browser may cache it.
+// POST/DELETE responses must never be cached.
+const PRIVATE_CACHE = "private, max-age=300, stale-while-revalidate=60";
+const NO_CACHE = "no-store";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -44,13 +51,14 @@ export async function GET(req: NextRequest) {
   }
 
   const cacheKey = getCacheKey(userId, mangaId || undefined);
+
   if (!skipCache) {
     try {
       const cached = await redis.get(cacheKey);
       if (cached) {
         console.log(`[User Reads] Cache HIT: user=${userId}, manga=${mangaId || 'all'}`);
         return NextResponse.json(JSON.parse(cached as string), {
-          headers: { "Cache-Control": "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400", "X-Cache": "HIT" },
+          headers: { "Cache-Control": PRIVATE_CACHE, "X-Cache": "HIT" },
         });
       }
     } catch (cacheErr) {
@@ -66,9 +74,7 @@ export async function GET(req: NextRequest) {
       .select("manga_id, chapters")
       .eq("user_id", userId);
 
-    if (mangaId) {
-      query = query.eq("manga_id", mangaId);
-    }
+    if (mangaId) query = query.eq("manga_id", mangaId);
 
     const { data, error } = await query;
 
@@ -79,20 +85,18 @@ export async function GET(req: NextRequest) {
 
     if (mangaId) {
       const mangaRead = data?.[0];
-      // ✅ Normalize text[] → number[] before returning
       const readChapters = normalizeChapters(mangaRead?.chapters || []);
       const responseData = { mangaId, readChapters };
 
       try { await redis.set(cacheKey, JSON.stringify(responseData), 'EX', TTL.HOUR); } catch {}
 
       return NextResponse.json(responseData, {
-        headers: { "Cache-Control": "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400", "X-Cache": "MISS" },
+        headers: { "Cache-Control": PRIVATE_CACHE, "X-Cache": "MISS" },
       });
     }
 
     const userReads = data?.map((item) => ({
       mangaId: item.manga_id,
-      // ✅ Normalize text[] → number[] for each manga
       readChapters: normalizeChapters(item.chapters || []),
     })) || [];
 
@@ -101,8 +105,9 @@ export async function GET(req: NextRequest) {
     try { await redis.set(cacheKey, JSON.stringify(responseData), 'EX', TTL.HOUR); } catch {}
 
     return NextResponse.json(responseData, {
-      headers: { "Cache-Control": "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400", "X-Cache": "MISS" },
+      headers: { "Cache-Control": PRIVATE_CACHE, "X-Cache": "MISS" },
     });
+
   } catch (err) {
     console.error("Unexpected error:", err);
     return NextResponse.json({ error: "Internal server error", readChapters: [] }, { status: 500 });
@@ -130,7 +135,6 @@ export async function POST(req: NextRequest) {
       .eq("manga_id", mangaId)
       .single();
 
-    // ✅ Normalize existing text[] chapters to numbers first
     let currentChapters: number[] = normalizeChapters(
       existingRecord && !fetchError ? (existingRecord.chapters || []) : []
     );
@@ -141,7 +145,6 @@ export async function POST(req: NextRequest) {
       currentChapters.sort((a, b) => a - b);
     }
 
-    // ✅ Store back as strings to match text[] column type
     const chaptersAsStrings = currentChapters.map(String);
 
     const { error } = await supabase
@@ -162,14 +165,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    // ✅ Wipe Redis cache immediately so next GET hits the DB fresh
     await invalidateUserReadsCache(userId, mangaId);
 
-    return NextResponse.json({
-      success: true,
-      readChapters: currentChapters, // return as numbers for the frontend
-      message: `Chapter ${chapterNumber} marked as read`,
-      cacheInvalidated: true,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        readChapters: currentChapters,
+        message: `Chapter ${chapterNumber} marked as read`,
+        cacheInvalidated: true,
+      },
+      { headers: { "Cache-Control": NO_CACHE } } // ✅ never cache mutation responses
+    );
   } catch (err) {
     console.error("Unexpected error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
@@ -202,7 +209,6 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Record not found" }, { status: 404 });
     }
 
-    // ✅ Normalize, filter, then store back as strings
     const currentChapters = normalizeChapters(existingRecord.chapters || []);
     const numToRemove = parseFloat(chapterNumber);
     const updatedChapters = currentChapters.filter((ch) => ch !== numToRemove);
@@ -222,14 +228,18 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
+    // ✅ Wipe Redis cache immediately so next GET hits the DB fresh
     await invalidateUserReadsCache(userId, mangaId);
 
-    return NextResponse.json({
-      success: true,
-      readChapters: updatedChapters, // return as numbers for the frontend
-      message: `Chapter ${chapterNumber} unmarked as read`,
-      cacheInvalidated: true,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        readChapters: updatedChapters,
+        message: `Chapter ${chapterNumber} unmarked as read`,
+        cacheInvalidated: true,
+      },
+      { headers: { "Cache-Control": NO_CACHE } } // ✅ never cache mutation responses
+    );
   } catch (err) {
     console.error("Unexpected error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
