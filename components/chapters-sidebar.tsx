@@ -89,6 +89,10 @@ export function ChaptersSidebar({
   const [isLoading, setIsLoading] = useState(true);
   const [maxAvailableChapter, setMaxAvailableChapter] = useState(0);
 
+  // ✅ Ref to the current chapter's DOM element for scrolling into view
+  const currentChapterRef = useRef<HTMLDivElement>(null);
+  const hasScrolledToCurrentRef = useRef(false);
+
   const filteredLengthRef = useRef(0);
   const isLoadingMoreRef = useRef(false);
 
@@ -98,7 +102,7 @@ export function ChaptersSidebar({
       setIsLoading(true);
       try {
         const res = await fetch(`/api/manga/chapters?mangaId=${mangaId}`, {
-          next: { revalidate: 300 }, // cache for 5 minutes
+          next: { revalidate: 300 },
         });
         const data = await res.json();
         if (data.chapters && data.chapters.length > 0) {
@@ -122,7 +126,7 @@ export function ChaptersSidebar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mangaId]);
 
-  // ── Fetch read chapters (never cached — must always be fresh) ─────────────
+  // ── Fetch read chapters (never cached) ───────────────────────────────────
   useEffect(() => {
     const fetchReadChapters = async () => {
       try {
@@ -147,9 +151,33 @@ export function ChaptersSidebar({
         setReadChapters([]);
       }
     };
-
     fetchReadChapters();
   }, [mangaId]);
+
+  // ── Scroll current chapter into center of viewport ────────────────────────
+  // Runs after chapters load AND after sort/search changes
+  // Uses a small delay to ensure the DOM has rendered the current chapter item
+  useEffect(() => {
+    if (isLoading) return;
+    if (!currentChapterRef.current) return;
+    if (!scrollContainerRef.current) return;
+
+    // Reset scroll flag when sort/search changes so we re-center
+    hasScrolledToCurrentRef.current = false;
+
+    const timer = setTimeout(() => {
+      if (hasScrolledToCurrentRef.current) return;
+      if (!currentChapterRef.current || !scrollContainerRef.current) return;
+
+      currentChapterRef.current.scrollIntoView({
+        block: "center",
+        behavior: "smooth",
+      });
+      hasScrolledToCurrentRef.current = true;
+    }, 150); // small delay to let DOM render
+
+    return () => clearTimeout(timer);
+  }, [isLoading, sortOrder, searchQuery, rawChapters]);
 
   const generateFallbackChapters = () => {
     const fallback = Array.from({ length: totalChapters }, (_, i) => ({
@@ -179,8 +207,17 @@ export function ChaptersSidebar({
 
   filteredLengthRef.current = filteredChapters.length;
 
-  const chaptersList = filteredChapters.slice(0, displayedChapters);
-  const hasMore = displayedChapters < filteredChapters.length;
+  // ✅ When current chapter would be outside the displayed batch, expand batch to include it
+  const currentChapterIndex = filteredChapters.findIndex(
+    (ch) => ch.chapter_number === parseFloat(String(currentChapter))
+  );
+  const minDisplayed = currentChapterIndex >= 0
+    ? Math.max(BATCH, currentChapterIndex + 1)
+    : BATCH;
+
+  const effectiveDisplayed = Math.max(displayedChapters, minDisplayed);
+  const chaptersList = filteredChapters.slice(0, effectiveDisplayed);
+  const hasMore = effectiveDisplayed < filteredChapters.length;
 
   // ── Infinite scroll ───────────────────────────────────────────────────────
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -218,7 +255,7 @@ export function ChaptersSidebar({
     setDisplayedChapters(BATCH);
     isLoadingMoreRef.current = false;
     setIsLoadingMore(false);
-    if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+    // Don't reset scroll here — the scroll effect handles it
   }, [searchQuery, sortOrder]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -329,7 +366,9 @@ export function ChaptersSidebar({
                     }
                     className={isLocked ? "pointer-events-none" : ""}
                   >
+                    {/* ✅ Attach ref only to the current chapter item */}
                     <div
+                      ref={isCurrent ? currentChapterRef : undefined}
                       className={`p-3 my-1 rounded-lg transition-all duration-200 group border flex items-center justify-between active:scale-[0.98] relative overflow-hidden ${
                         isCurrent
                           ? "bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border-cyan-400/60 shadow-lg shadow-cyan-500/20"
