@@ -7,18 +7,16 @@ import { useBookmarks } from "@/hooks/use-bookmarks";
 import { useMangas } from "@/hooks/use-mangas";
 import { useAuth } from "@/lib/auth-context";
 import { FavoritedCard } from "@/components/favorited-card";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Link from "next/link";
-import { Star, Trash2, Search, ArrowRight, AlertCircle } from "lucide-react";
+import { Star, Trash2, Search, ArrowRight, AlertCircle, BookMarked } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { RatingComponent } from "@/components/rating-component";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 
-// ── Skeleton components ───────────────────────────────────────────────────────
+// ── Skeletons ─────────────────────────────────────────────────────────────────
 
 function SkeletonFavoriteCard() {
   return (
@@ -34,11 +32,9 @@ function SkeletonFavoriteCard() {
 
 function SkeletonBookmarkCard() {
   return (
-    <div className="p-4 rounded-xl bg-white/5 border border-white/10 animate-pulse">
-      <div className="flex gap-4">
-        {/* Cover */}
-        <div className="w-24 h-32 rounded bg-white/10 flex-shrink-0" />
-        {/* Text block */}
+    <div className="p-3 sm:p-4 rounded-md bg-white/5 border border-white/10 animate-pulse">
+      <div className="flex gap-3 sm:gap-4">
+        <div className="w-20 h-28 sm:w-24 sm:h-32 rounded bg-white/10 flex-shrink-0" />
         <div className="flex-1 space-y-2 py-1">
           <div className="h-4 bg-white/10 rounded-full w-3/4" />
           <div className="h-3 bg-white/10 rounded-full w-1/3" />
@@ -47,7 +43,7 @@ function SkeletonBookmarkCard() {
             <div className="h-5 w-28 bg-white/10 rounded-full" />
           </div>
           <div className="h-px bg-white/10 w-full my-2" />
-          <div className="h-7 bg-white/10 rounded-lg w-full" />
+          <div className="h-7 bg-white/10 rounded w-full" />
         </div>
       </div>
     </div>
@@ -56,27 +52,29 @@ function SkeletonBookmarkCard() {
 
 function LibrarySkeleton({ activeTab }: { activeTab: "favorites" | "bookmarks" }) {
   return (
-    <div className="flex flex-col min-h-screen bg-background">
+    <div className="min-h-screen bg-[#0a0a1a]">
       <Header />
-      <main className="flex-1 container mx-auto px-4 py-12">
-        {/* Page title */}
-        <div className="mb-12 space-y-3">
-          <div className="h-12 bg-white/10 rounded-full w-52 animate-pulse" />
-          <div className="h-4 bg-white/10 rounded-full w-72 animate-pulse" />
-        </div>
-
-        {/* Tabs + search */}
-        <div className="mb-8 space-y-6">
-          <div className="flex gap-2">
-            <div className="h-11 w-36 rounded-full bg-white/10 animate-pulse" />
-            <div className="h-11 w-36 rounded-full bg-white/10 animate-pulse" />
+      <main className="container mx-auto px-4 sm:px-6 py-6 sm:py-12 space-y-5 sm:space-y-8">
+        {/* Banner skeleton */}
+        <div className="rounded-md bg-white/5 border border-pink-500/20 p-5 sm:p-8 animate-pulse">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="h-5 w-5 sm:h-6 sm:w-6 rounded bg-white/10" />
+            <div className="h-7 sm:h-8 w-36 sm:w-48 bg-white/10 rounded-md" />
           </div>
-          <div className="h-12 rounded-lg bg-white/5 border border-white/10 animate-pulse" />
+          <div className="h-4 w-52 sm:w-64 bg-white/10 rounded-md" />
         </div>
-
-        {/* Cards */}
+        {/* Search skeleton */}
+        <div className="h-11 rounded-md bg-white/5 border border-white/10 animate-pulse" />
+        {/* Tabs skeleton */}
+        <div className="flex gap-2">
+          {[36, 36].map((w, i) => (
+            <div key={i} className="h-8 rounded bg-white/10 animate-pulse flex-shrink-0"
+              style={{ width: `${w * 4}px`, animationDelay: `${i * 50}ms` }} />
+          ))}
+        </div>
+        {/* Grid skeleton */}
         {activeTab === "favorites" ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
             {Array.from({ length: 10 }).map((_, i) => (
               <div key={i} style={{ animationDelay: `${i * 40}ms` }}>
                 <SkeletonFavoriteCard />
@@ -84,7 +82,7 @@ function LibrarySkeleton({ activeTab }: { activeTab: "favorites" | "bookmarks" }
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} style={{ animationDelay: `${i * 50}ms` }}>
                 <SkeletonBookmarkCard />
@@ -147,198 +145,274 @@ export default function LibraryPage() {
   const hasMore = displayedItems < currentMangas.length;
 
   const handleLoadMore = () => setDisplayedItems((prev) => prev + itemsPerPage);
-
   const handleTabChange = (tab: "favorites" | "bookmarks") => {
     setActiveTab(tab);
     setDisplayedItems(itemsPerPage);
     setSearchQuery("");
   };
-
   const handleContinueReading = (mangaId: string, chapterNumber: number, panelNumber: number) => {
     router.push(`/manga/${mangaId}/chapter/${chapterNumber}?panel=${panelNumber}`);
   };
 
-  // Loading → skeletons (tab-aware so layout matches what will appear)
   if (!isClient || !favLoaded || !bookLoaded || mangasLoading) {
     return <LibrarySkeleton activeTab={activeTab} />;
   }
 
-  // Error
+  // ── Error ─────────────────────────────────────────────────────────────────
   if (mangasError) {
     return (
-      <div className="flex flex-col min-h-screen bg-background">
+      <div className="min-h-screen bg-[#0a0a1a]">
         <Header />
-        <main className="flex-1 container mx-auto px-4 py-12">
-          <Card className="p-8 bg-card/50 border-destructive/30 backdrop-blur-sm max-w-2xl mx-auto">
-            <div className="flex items-center gap-3 mb-4">
-              <AlertCircle className="w-6 h-6 text-destructive" />
-              <h2 className="text-xl font-semibold text-destructive">Error Loading Library</h2>
+        <main className="container mx-auto px-4 sm:px-6 py-6 sm:py-12">
+          <div className="rounded-md bg-gradient-to-r from-pink-500/10 to-purple-500/10 border border-pink-500/30 backdrop-blur-sm px-5 sm:px-8 py-6 sm:py-8 max-w-2xl mx-auto">
+            <div className="flex items-center gap-3 mb-3">
+              <AlertCircle className="w-5 h-5 sm:w-6 sm:h-6 text-pink-500 flex-shrink-0" />
+              <h2 className="text-lg sm:text-xl font-black text-white">Error Loading Library</h2>
             </div>
-            <p className="text-muted-foreground mb-4">{mangasError}</p>
-            <Button onClick={() => window.location.reload()} className="bg-gradient-to-r from-primary to-secondary">
+            <p className="text-white/60 mb-5 text-sm sm:text-base">{mangasError}</p>
+            <Button
+              onClick={() => window.location.reload()}
+              className="w-full sm:w-auto bg-gradient-to-r from-pink-500 to-pink-600 hover:from-pink-600 hover:to-pink-700 text-white font-bold rounded-full px-8 py-5 hover:shadow-xl hover:shadow-pink-500/50 hover:scale-105 transition-all"
+            >
               Retry
             </Button>
-          </Card>
+          </div>
         </main>
         <Footer />
       </div>
     );
   }
 
+  // ── Main ──────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col min-h-screen bg-background">
+    <div className="min-h-screen bg-[#0a0a1a]">
       <Header />
-      <main className="flex-1 container mx-auto px-4 py-12">
-        {/* Title */}
-        <div className="mb-12">
-          <h1 className="text-5xl font-bold mb-2 bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-            My Library
-          </h1>
-          <p className="text-muted-foreground text-lg">Manage your favorites and bookmarks</p>
+
+      <main className="container mx-auto px-4 sm:px-6 py-6 sm:py-12 space-y-5 sm:space-y-8">
+
+        {/* ── Banner — identical structure to Trending page ─────────────── */}
+        <div className="rounded-md bg-gradient-to-r from-pink-500/10 to-purple-500/10 border border-pink-500/30 backdrop-blur-sm px-5 sm:px-8 py-5 sm:py-7">
+          <div className="flex items-center gap-2.5 sm:gap-3 mb-1.5 sm:mb-2">
+            <BookMarked className="w-5 h-5 sm:w-6 sm:h-6 text-pink-500 flex-shrink-0" />
+            <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-white leading-none tracking-tight">
+              My Library
+            </h1>
+          </div>
+          <p className="text-white/60 text-sm sm:text-base pl-0.5">
+            Manage your favorites and bookmarks
+          </p>
         </div>
 
-        {/* Tabs + Search */}
-        <div className="mb-8 space-y-6">
-          <div className="flex gap-2 overflow-x-auto pb-2">
-            {(["favorites", "bookmarks"] as const).map((tab) => (
+        {/* ── Search — identical to Trending page ───────────────────────── */}
+        <div className="relative">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 pointer-events-none" />
+          <Input
+            placeholder="Search by title or author…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10 h-11 bg-white/10 backdrop-blur-sm border-white/10 focus-visible:border-pink-500/50 focus-visible:ring-0 rounded-md text-white placeholder:text-white/40"
+          />
+        </div>
+
+        {/* ── Tabs — same pill style as genre buttons on Trending ────────── */}
+        <div
+          className="flex gap-2 overflow-x-auto pb-1"
+          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+        >
+          {(["favorites", "bookmarks"] as const).map((tab) => {
+            const count = tab === "favorites" ? favorites.length : bookmarks.length;
+            const isActive = activeTab === tab;
+            return (
               <button
                 key={tab}
                 onClick={() => handleTabChange(tab)}
-                className={`px-6 py-3 rounded-full font-medium text-sm whitespace-nowrap transition-all cursor-pointer ${
-                  activeTab === tab
-                    ? "bg-gradient-to-r from-primary to-secondary text-white shadow-lg shadow-primary/20"
-                    : "bg-white/5 border border-white/10 text-foreground hover:bg-white/10 hover:border-primary/30"
-                }`}
+                className={[
+                  "px-3 py-1.5 rounded text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 backdrop-blur-sm capitalize",
+                  isActive
+                    ? "bg-gradient-to-r from-pink-500/20 to-purple-500/20 border border-pink-500/30 text-white shadow-lg shadow-pink-500/10"
+                    : "bg-white/10 border border-transparent text-white/70 hover:bg-white/15 hover:text-white",
+                ].join(" ")}
               >
-                {tab === "favorites" ? `Favorites (${favorites.length})` : `Bookmarks (${bookmarks.length})`}
+                {tab} ({count})
               </button>
-            ))}
-          </div>
-
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-            <Input
-              placeholder="Search manga by title or author..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 bg-white/5 border-white/10 focus:border-primary/50 h-12"
-            />
-          </div>
+            );
+          })}
         </div>
 
-        {/* Results count */}
+        {/* ── Results count — identical to Trending page ────────────────── */}
         {currentMangas.length > 0 && (
-          <p className="text-sm text-muted-foreground mb-6">
-            Showing {displayedMangas.length} of {currentMangas.length} manga
+          <p className="text-xs text-white/40 -mt-2">
+            Showing{" "}
+            <span className="text-white/70 font-medium">{displayedMangas.length}</span>
+            {" "}of{" "}
+            <span className="text-white/70 font-medium">{currentMangas.length}</span>
+            {" "}manga
           </p>
         )}
 
-        {/* ── Favorites tab ── */}
+        {/* ── Favorites grid ────────────────────────────────────────────── */}
         {activeTab === "favorites" ? (
           displayedMangas.length > 0 ? (
             <>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 mb-12">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
                 {displayedMangas.map((manga) => (
                   <FavoritedCard key={manga.id} manga={manga} onRemove={removeFavorite} />
                 ))}
               </div>
               {hasMore && (
-                <div className="flex justify-center">
-                  <Button size="lg" variant="outline" onClick={handleLoadMore}
-                    className="gap-2 bg-transparent border-pink-500/40 hover:text-pink-500/50 text-pink-500 rounded-full font-bold px-8">
-                    <span className="hidden sm:inline">Load More Manga</span>
-                    <span className="sm:hidden">Load More</span>
-                    <ArrowRight className="w-4 h-4" />
+                <div className="flex justify-center pt-4">
+                  <Button
+                    size="lg"
+                    onClick={handleLoadMore}
+                    className="w-full sm:w-auto bg-gradient-to-r from-pink-500 to-pink-600 hover:from-pink-600 hover:to-pink-700 text-white font-bold px-8 py-6 text-base rounded-full flex items-center justify-center gap-2 transition-all hover:shadow-xl hover:shadow-pink-500/50 hover:scale-105"
+                  >
+                    Load More
+                    <ArrowRight className="w-5 h-5" />
                   </Button>
                 </div>
               )}
             </>
           ) : (
-            <Card className="p-12 text-center bg-card/50 border-white/10 backdrop-blur-sm">
-              <p className="text-muted-foreground mb-4">
-                {searchQuery ? "No favorites found matching your search" : "No favorites yet"}
+            <div className="flex flex-col items-center justify-center py-16 sm:py-20 text-center gap-5">
+              <p className="text-white/50 text-sm sm:text-base">
+                {searchQuery ? "No favorites found matching your search." : "No favorites yet."}
               </p>
               {searchQuery ? (
-                <Button onClick={() => setSearchQuery("")} className="bg-gradient-to-r from-primary to-secondary">Clear Search</Button>
+                <Button
+                  onClick={() => setSearchQuery("")}
+                  variant="outline"
+                  className="w-full sm:w-auto border-2 border-white/40 text-white hover:text-pink-500/80 font-bold px-8 py-6 text-base rounded-full transition-all bg-white/5 backdrop-blur-sm hover:border-white/60"
+                >
+                  Clear Search
+                </Button>
               ) : (
-                <Link href="/trending">
-                  <Button className="bg-gradient-to-r from-primary to-secondary">Explore Manga</Button>
+                <Link href="/trending" className="w-full sm:w-auto">
+                  <Button className="w-full bg-gradient-to-r from-pink-500 to-pink-600 hover:from-pink-600 hover:to-pink-700 text-white font-bold px-8 py-6 text-base rounded-full flex items-center justify-center gap-2 hover:shadow-xl hover:shadow-pink-500/50 hover:scale-105 transition-all">
+                    Explore Manga
+                    <ArrowRight className="w-5 h-5" />
+                  </Button>
                 </Link>
               )}
-            </Card>
+            </div>
           )
 
-        /* ── Bookmarks tab ── */
+        /* ── Bookmarks list ───────────────────────────────────────────── */
         ) : displayedMangas.length > 0 ? (
           <>
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-12">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
               {displayedMangas.map((manga) => {
                 const bookmark = bookmarks.find((b) => b.manga_id === manga.id);
                 return (
-                  <Card key={manga.id} className="p-4 bg-card/50 border-white/10 hover:border-primary/30 transition-colors backdrop-blur-sm">
-                    <div className="flex gap-4">
+                  <div
+                    key={manga.id}
+                    className="p-3 sm:p-4 rounded-md bg-white/5 border border-white/10 hover:border-pink-500/30 transition-colors backdrop-blur-sm"
+                  >
+                    <div className="flex gap-3 sm:gap-4">
+                      {/* Cover */}
                       <Link href={`/manga/${manga.id}`} className="flex-shrink-0">
-                        <div className="relative w-24 h-32 rounded overflow-hidden">
-                          <Image src={manga.cover || "/placeholder.svg"} alt={manga.title} width={96} height={128} className="w-full h-full object-cover" />
+                        <div className="relative w-20 h-28 sm:w-24 sm:h-32 rounded overflow-hidden">
+                          <Image
+                            src={manga.cover || "/placeholder.svg"}
+                            alt={manga.title}
+                            width={96}
+                            height={128}
+                            className="w-full h-full object-cover"
+                          />
                         </div>
                       </Link>
+
+                      {/* Info */}
                       <div className="flex-1 min-w-0">
                         <Link href={`/manga/${manga.id}`}>
-                          <h3 className="font-semibold text-lg mb-1 hover:text-primary transition-colors truncate">{manga.title}</h3>
+                          <h3 className="font-black text-base sm:text-lg mb-0.5 text-white hover:text-pink-400 transition-colors truncate leading-tight">
+                            {manga.title}
+                          </h3>
                         </Link>
-                        <p className="text-sm text-muted-foreground mb-2 truncate">{manga.author}</p>
-                        <div className="flex items-center gap-4 mb-4 flex-wrap">
+                        <p className="text-xs sm:text-sm text-white/50 mb-2 truncate">
+                          {manga.author}
+                        </p>
+
+                        {/* Meta */}
+                        <div className="flex flex-wrap items-center gap-2 mb-3">
                           <div className="flex items-center gap-1">
-                            <Star className="w-4 h-4 fill-primary text-primary" />
-                            <span className="text-sm">{manga.rating}</span>
+                            <Star className="w-3.5 h-3.5 fill-pink-500 text-pink-500" />
+                            <span className="text-xs sm:text-sm text-white/70 font-bold">{manga.rating}</span>
                           </div>
-                          <Badge variant="outline" className="bg-white/5 border-white/10">
-                            Chapter {bookmark?.chapter_number} • Panel {bookmark?.page_number}
-                          </Badge>
+                          <span className="px-2 py-0.5 rounded text-xs font-bold bg-white/10 border border-white/10 text-white/60">
+                            Ch.{bookmark?.chapter_number} · P.{bookmark?.page_number}
+                          </span>
                         </div>
-                        <div className="mb-3 pb-3 border-b border-white/10">
+
+                        <div className="mb-2.5 pb-2.5 border-b border-white/10">
                           <RatingComponent mangaId={manga.id} />
                         </div>
+
+                        {/* Actions */}
                         <div className="flex gap-2">
-                          <Button size="sm" className="bg-gradient-to-r from-primary to-secondary flex-1"
-                            onClick={() => handleContinueReading(manga.id, bookmark?.chapter_number || 1, bookmark?.page_number || 1)}>
+                          <button
+                            onClick={() =>
+                              handleContinueReading(
+                                manga.id,
+                                bookmark?.chapter_number || 1,
+                                bookmark?.page_number || 1
+                              )
+                            }
+                            className="flex-1 h-8 sm:h-9 rounded text-xs sm:text-sm font-bold text-white bg-gradient-to-r from-pink-500 to-pink-600 hover:from-pink-600 hover:to-pink-700 transition-all hover:shadow-lg hover:shadow-pink-500/30"
+                          >
                             Continue Reading
-                          </Button>
-                          <Button variant="outline" size="sm" onClick={() => removeBookmark(manga.id)}
-                            className="gap-2 bg-transparent border-white/10 hover:bg-destructive/10 hover:border-destructive/30 hover:text-destructive transition-colors">
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          </button>
+                          <button
+                            onClick={() => removeBookmark(manga.id)}
+                            className="h-8 sm:h-9 px-2.5 sm:px-3 rounded bg-white/10 border border-white/10 text-white/50 hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                          </button>
                         </div>
                       </div>
                     </div>
-                  </Card>
+                  </div>
                 );
               })}
             </div>
+
             {hasMore && (
-              <div className="flex justify-center">
-                <Button size="lg" variant="outline" onClick={handleLoadMore}
-                  className="gap-2 bg-transparent border-pink-500/40 hover:text-pink-500/50 text-pink-500 rounded-full font-bold px-8">
-                  <span className="hidden sm:inline">Load More Bookmarks</span>
-                  <span className="sm:hidden">Load More</span>
-                  <ArrowRight className="w-4 h-4" />
+              <div className="flex justify-center pt-4">
+                <Button
+                  size="lg"
+                  onClick={handleLoadMore}
+                  className="w-full sm:w-auto bg-gradient-to-r from-pink-500 to-pink-600 hover:from-pink-600 hover:to-pink-700 text-white font-bold px-8 py-6 text-base rounded-full flex items-center justify-center gap-2 transition-all hover:shadow-xl hover:shadow-pink-500/50 hover:scale-105"
+                >
+                  Load More
+                  <ArrowRight className="w-5 h-5" />
                 </Button>
               </div>
             )}
           </>
         ) : (
-          <Card className="p-12 text-center bg-card/50 border-white/10 backdrop-blur-sm">
-            <p className="text-muted-foreground mb-4">
-              {searchQuery ? "No bookmarks found matching your search" : "No bookmarks yet"}
+          <div className="flex flex-col items-center justify-center py-16 sm:py-20 text-center gap-5">
+            <p className="text-white/50 text-sm sm:text-base">
+              {searchQuery ? "No bookmarks found matching your search." : "No bookmarks yet."}
             </p>
             {searchQuery ? (
-              <Button onClick={() => setSearchQuery("")} className="bg-gradient-to-r from-primary to-secondary">Clear Search</Button>
+              <Button
+                onClick={() => setSearchQuery("")}
+                variant="outline"
+                className="w-full sm:w-auto border-2 border-white/40 text-white hover:text-pink-500/80 font-bold px-8 py-6 text-base rounded-full transition-all bg-white/5 backdrop-blur-sm hover:border-white/60"
+              >
+                Clear Search
+              </Button>
             ) : (
-              <Link href="/"><Button className="bg-gradient-to-r from-primary to-secondary">Start Reading</Button></Link>
+              <Link href="/" className="w-full sm:w-auto">
+                <Button className="w-full bg-gradient-to-r from-pink-500 to-pink-600 hover:from-pink-600 hover:to-pink-700 text-white font-bold px-8 py-6 text-base rounded-full flex items-center justify-center gap-2 hover:shadow-xl hover:shadow-pink-500/50 hover:scale-105 transition-all">
+                  Start Reading
+                  <ArrowRight className="w-5 h-5" />
+                </Button>
+              </Link>
             )}
-          </Card>
+          </div>
         )}
       </main>
+
       <Footer />
     </div>
   );

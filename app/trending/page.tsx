@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { AnimeCard } from "@/components/anime-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, ArrowRight } from "lucide-react";
+import { Search, TrendingUp, ArrowRight } from "lucide-react";
 import { useState, useMemo, useEffect } from "react";
 
 // ── Skeletons ─────────────────────────────────────────────────────────────────
@@ -25,42 +25,28 @@ function SkeletonCard() {
 }
 
 function TrendingPageSkeleton() {
-  const genreWidths = ["w-10", "w-20", "w-16", "w-24", "w-14", "w-20", "w-16", "w-18"];
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-[#0a0a1a]">
       <Header />
-      <main className="container mx-auto px-4 py-12">
-        {/* Title */}
-        <div className="mb-12 space-y-3">
-          <div className="h-12 bg-white/10 rounded-full w-64 animate-pulse" />
-          <div className="h-4 bg-white/10 rounded-full w-80 animate-pulse" />
-        </div>
-
-        {/* Search + filters */}
-        <div className="mb-8 space-y-6">
-          <div className="h-12 rounded-lg bg-white/5 border border-white/10 animate-pulse" />
-
-          <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
-            {/* Genre pills */}
-            <div className="flex gap-2 overflow-hidden pb-2">
-              {genreWidths.map((w, i) => (
-                <div
-                  key={i}
-                  className={`h-9 ${w} rounded-full bg-white/10 animate-pulse flex-shrink-0`}
-                  style={{ animationDelay: `${i * 50}ms` }}
-                />
-              ))}
-            </div>
-            {/* Sort dropdown */}
-            <div className="h-10 w-40 rounded-lg bg-white/10 animate-pulse flex-shrink-0" />
+      <main className="container mx-auto px-4 sm:px-6 py-6 sm:py-12 space-y-5 sm:space-y-8">
+        <div className="rounded-md bg-white/5 border border-pink-500/20 p-5 sm:p-8 animate-pulse">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="h-5 w-5 sm:h-6 sm:w-6 rounded bg-white/10" />
+            <div className="h-7 sm:h-8 w-40 sm:w-52 bg-white/10 rounded-md" />
           </div>
+          <div className="h-4 w-56 sm:w-72 bg-white/10 rounded-md" />
         </div>
-
-        {/* Results count */}
-        <div className="h-4 w-36 bg-white/10 rounded-full animate-pulse mb-6" />
-
-        {/* Card grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
+        <div className="h-11 rounded-md bg-white/5 border border-white/10 animate-pulse" />
+        <div className="flex gap-2 overflow-hidden">
+          {[10, 20, 16, 24, 14, 20].map((w, i) => (
+            <div
+              key={i}
+              className="h-8 rounded bg-white/10 animate-pulse flex-shrink-0"
+              style={{ width: `${w * 4}px`, animationDelay: `${i * 50}ms` }}
+            />
+          ))}
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
           {Array.from({ length: 10 }).map((_, i) => (
             <div key={i} style={{ animationDelay: `${i * 40}ms` }}>
               <SkeletonCard />
@@ -72,6 +58,14 @@ function TrendingPageSkeleton() {
     </div>
   );
 }
+
+// ── Sort options ───────────────────────────────────────────────────────────────
+
+const SORT_OPTIONS: { value: "rating" | "views" | "recent"; label: string }[] = [
+  { value: "rating", label: "Top Rated" },
+  { value: "views", label: "Most Viewed" },
+  { value: "recent", label: "Recent" },
+];
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -118,18 +112,17 @@ export default function TrendingPage() {
 
   const filteredMangas = useMemo(() => {
     let result = allMangas;
-    if (selectedGenre && selectedGenre !== "All") {
+    if (selectedGenre && selectedGenre !== "All")
       result = result.filter((m) => m.genre?.includes(selectedGenre));
-    }
-    if (searchQuery) {
+    if (searchQuery)
       result = result.filter(
         (m) =>
           m.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
           m.author.toLowerCase().includes(searchQuery.toLowerCase())
       );
-    }
     if (sortBy === "rating") result = [...result].sort((a, b) => b.rating - a.rating);
-    else if (sortBy === "views") result = [...result].sort((a, b) => (b.views || 0) - (a.views || 0));
+    else if (sortBy === "views")
+      result = [...result].sort((a, b) => (b.views || 0) - (a.views || 0));
     return result;
   }, [allMangas, selectedGenre, searchQuery, sortBy]);
 
@@ -137,105 +130,141 @@ export default function TrendingPage() {
   const hasMore = displayedItems < filteredMangas.length;
 
   const handleLoadMore = () => setDisplayedItems((prev) => prev + itemsPerPage);
-
   const handleGenreClick = (genre: string) => {
     setSelectedGenre(genre === "All" ? null : genre);
+    setDisplayedItems(itemsPerPage);
+  };
+  const clearFilters = () => {
+    setSelectedGenre(null);
+    setSearchQuery("");
     setDisplayedItems(itemsPerPage);
   };
 
   if (isLoading) return <TrendingPageSkeleton />;
 
+  const activeGenre = selectedGenre ?? "All";
+
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-[#0a0a1a]">
       <Header />
-      <main className="container mx-auto px-4 py-12">
-        {/* Title */}
-        <div className="mb-12">
-          <h1 className="text-5xl font-bold mb-2 bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-            Trending Manga
-          </h1>
-          <p className="text-muted-foreground text-lg">
+
+      <main className="container mx-auto px-4 sm:px-6 py-6 sm:py-12 space-y-5 sm:space-y-8">
+
+        {/* ── Banner ───────────────────────────────────────────────────── */}
+        <div className="rounded-md bg-gradient-to-r from-pink-500/10 to-purple-500/10 border border-pink-500/30 backdrop-blur-sm px-5 sm:px-8 py-5 sm:py-7">
+          <div className="flex items-center gap-2.5 sm:gap-3 mb-1.5 sm:mb-2">
+            <TrendingUp className="w-5 h-5 sm:w-6 sm:h-6 text-pink-500 flex-shrink-0" />
+            <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-white leading-none tracking-tight">
+              Trending Manga
+            </h1>
+          </div>
+          <p className="text-white/60 text-sm sm:text-base pl-0.5">
             Discover the most popular manga this season
           </p>
         </div>
 
-        {/* Search + Filters */}
-        <div className="mb-8 space-y-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-            <Input
-              placeholder="Search manga by title or author..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 bg-white/5 border-white/10 focus:border-primary/50 h-12"
-            />
-          </div>
+        {/* ── Search ───────────────────────────────────────────────────── */}
+        <div className="relative">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 pointer-events-none" />
+          <Input
+            placeholder="Search by title or author…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10 h-11 bg-white/10 backdrop-blur-sm border-white/10 focus-visible:border-pink-500/50 focus-visible:ring-0 rounded-md text-white placeholder:text-white/40"
+          />
+        </div>
 
-          <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
-            <div className="flex gap-2 overflow-x-auto pb-2 w-full md:w-auto">
-              {genres.map((genre) => (
+        {/* ── Filters Row ──────────────────────────────────────────────── */}
+        <div className="flex flex-col gap-3">
+          {/* Genre pills — horizontally scrollable, hidden scrollbar */}
+          <div
+            className="flex gap-2 overflow-x-auto pb-1"
+            style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+          >
+            <style>{`.genre-scroll::-webkit-scrollbar { display: none; }`}</style>
+            {genres.map((genre) => {
+              const isActive = genre === activeGenre;
+              return (
                 <button
                   key={genre}
                   onClick={() => handleGenreClick(genre)}
-                  className={`px-4 py-2 rounded-full font-medium text-sm whitespace-nowrap transition-all cursor-pointer ${
-                    (genre === "All" && selectedGenre === null) || selectedGenre === genre
-                      ? "bg-gradient-to-r from-primary to-secondary text-white shadow-lg shadow-primary/20"
-                      : "bg-white/5 border border-white/10 text-foreground hover:bg-white/10 hover:border-primary/30"
-                  }`}
+                  className={[
+                    "px-3 py-1.5 rounded text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 backdrop-blur-sm",
+                    isActive
+                      ? "bg-gradient-to-r from-pink-500/20 to-purple-500/20 border border-pink-500/30 text-white shadow-lg shadow-pink-500/10"
+                      : "bg-white/10 border border-transparent text-white/70 hover:bg-white/15 hover:text-white",
+                  ].join(" ")}
                 >
                   {genre}
                 </button>
-              ))}
-            </div>
+              );
+            })}
+          </div>
 
+          {/* Sort — full width on mobile, auto on sm+ */}
+          <div className="flex items-center gap-2">
+            <span className="text-white/40 text-xs font-medium flex-shrink-0">Sort by</span>
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as "rating" | "views" | "recent")}
-              className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-foreground focus:border-primary/50 outline-none transition-colors"
+              className="appearance-none w-full sm:w-auto px-4 py-1.5 rounded text-sm font-bold bg-white/10 backdrop-blur-sm border border-transparent text-white/70 hover:bg-white/15 hover:text-white focus:outline-none focus:border-pink-500/30 transition-all cursor-pointer"
             >
-              <option value="rating">Sort by Rating</option>
-              <option value="views">Sort by Views</option>
-              <option value="recent">Sort by Recent</option>
+              {SORT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value} className="bg-[#0a0a1a]">
+                  {o.label}
+                </option>
+              ))}
             </select>
           </div>
         </div>
 
-        {/* Results count */}
-        <p className="text-sm text-muted-foreground mb-6">
-          Showing {displayedMangas.length} of {filteredMangas.length} manga
+        {/* ── Results count ─────────────────────────────────────────────── */}
+        <p className="text-xs text-white/40 -mt-2">
+          Showing{" "}
+          <span className="text-white/70 font-medium">{displayedMangas.length}</span>
+          {" "}of{" "}
+          <span className="text-white/70 font-medium">{filteredMangas.length}</span>
+          {" "}manga
         </p>
 
-        {/* Grid */}
+        {/* ── Grid ──────────────────────────────────────────────────────── */}
         {displayedMangas.length > 0 ? (
           <>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 mb-12">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
               {displayedMangas.map((manga) => (
                 <AnimeCard key={manga.id} manga={manga} />
               ))}
             </div>
+
             {hasMore && (
-              <div className="flex justify-center">
-                <Button size="lg" variant="outline" onClick={handleLoadMore}
-                  className="gap-2 bg-transparent border-pink-500/40 hover:text-pink-500/50 text-pink-500 rounded-full font-bold px-8">
-                  <span className="hidden sm:inline">Load More Manga</span>
-                  <span className="sm:hidden">Load More</span>
-                  <ArrowRight className="w-4 h-4" />
+              <div className="flex justify-center pt-4">
+                <Button
+                  size="lg"
+                  onClick={handleLoadMore}
+                  className="w-full sm:w-auto bg-gradient-to-r from-pink-500 to-pink-600 hover:from-pink-600 hover:to-pink-700 text-white font-bold px-8 py-6 text-base rounded-full flex items-center justify-center gap-2 transition-all hover:shadow-xl hover:shadow-pink-500/50 hover:scale-105"
+                >
+                  Load More Manga
+                  <ArrowRight className="w-5 h-5" />
                 </Button>
               </div>
             )}
           </>
         ) : (
-          <div className="text-center py-12">
-            <p className="text-muted-foreground mb-4">No manga found matching your criteria</p>
+          <div className="flex flex-col items-center justify-center py-16 sm:py-20 text-center gap-5">
+            <p className="text-white/50 text-sm sm:text-base">
+              No manga found matching your criteria.
+            </p>
             <Button
-              onClick={() => { setSelectedGenre(null); setSearchQuery(""); setDisplayedItems(itemsPerPage); }}
-              className="bg-gradient-to-r from-primary to-secondary"
+              onClick={clearFilters}
+              variant="outline"
+              className="w-full sm:w-auto border-2 border-white/40 text-white hover:text-pink-500/80 font-bold px-8 py-6 text-base rounded-full transition-all bg-white/5 backdrop-blur-sm hover:border-white/60"
             >
               Clear Filters
             </Button>
           </div>
         )}
       </main>
+
       <Footer />
     </div>
   );
