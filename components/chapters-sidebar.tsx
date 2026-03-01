@@ -24,7 +24,7 @@ interface ChaptersSidebarProps {
   mangaId: string;
   currentChapter?: number;
   chapters: number;
-  userId?: string; // kept for display purposes (e.g. read count) but NOT used for fetching
+  userId?: string;
 }
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
@@ -92,13 +92,14 @@ export function ChaptersSidebar({
   const filteredLengthRef = useRef(0);
   const isLoadingMoreRef = useRef(false);
 
-  // ── Fetch chapters ONCE ───────────────────────────────────────────────────
+  // ── Fetch chapters (cached — chapter list rarely changes) ─────────────────
   useEffect(() => {
     const fetchChapters = async () => {
       setIsLoading(true);
       try {
-        const res = await fetch(`/api/manga/chapters?mangaId=${mangaId}&t=${Date.now()}`, {
-          cache: "no-store",
+        // ✅ Cached — chapter list doesn't change often
+        const res = await fetch(`/api/manga/chapters?mangaId=${mangaId}`, {
+          next: { revalidate: 300 }, // revalidate every 5 minutes
         });
         const data = await res.json();
         if (data.chapters && data.chapters.length > 0) {
@@ -122,22 +123,25 @@ export function ChaptersSidebar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mangaId]);
 
-  // ── Fetch read chapters ───────────────────────────────────────────────────
-  // ✅ No userId guard — the API reads userId from the cookie server-side.
-  // The prop is unreliable on Vercel (can be undefined even when logged in).
+  // ── Fetch read chapters (never cached — must always be fresh) ─────────────
   useEffect(() => {
     const fetchReadChapters = async () => {
       try {
-        const res = await fetch(`/api/manga/chapters/user-reads?mangaId=${mangaId}`);
-        // 400 = not logged in, just show no highlights — not an error
+        // ✅ no-store — user read state must always be fresh, never cached
+        const res = await fetch(
+          `/api/manga/chapters/user-reads?mangaId=${mangaId}`,
+          { cache: "no-store" }
+        );
         if (!res.ok) { setReadChapters([]); return; }
         const data = await res.json();
         if (data.error) { setReadChapters([]); return; }
         if (data.readChapters && Array.isArray(data.readChapters)) {
-          const nums = data.readChapters
+          const nums: number[] = data.readChapters
             .map((ch: any) => (typeof ch === "number" ? ch : parseFloat(ch)))
             .filter((ch: number) => !isNaN(ch));
-          setReadChapters(nums);
+          // Dedupe in case DB still has dirty data
+          const deduped = [...new Set(nums)].sort((a, b) => a - b);
+          setReadChapters(deduped);
         } else {
           setReadChapters([]);
         }
@@ -148,7 +152,7 @@ export function ChaptersSidebar({
     };
 
     fetchReadChapters();
-  }, [mangaId]); // ✅ only depends on mangaId — not userId prop
+  }, [mangaId]);
 
   const generateFallbackChapters = () => {
     const fallback = Array.from({ length: totalChapters }, (_, i) => ({
@@ -238,19 +242,31 @@ export function ChaptersSidebar({
 
   const isChapterRead = (n: number) => readChapters.includes(n);
 
-  // ✅ No userId guard — API reads userId from cookie server-side
   const markChapterAsRead = async (chapterNumber: number) => {
+    // ✅ Optimistic update — highlight immediately before API responds
+    setReadChapters((prev) => {
+      if (prev.includes(chapterNumber)) return prev;
+      return [...prev, chapterNumber].sort((a, b) => a - b);
+    });
+
     try {
+      // ✅ no-store — never cache mutation requests
       const res = await fetch("/api/manga/chapters/user-reads", {
         method: "POST",
+        cache: "no-store",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mangaId, chapterNumber }),
       });
-      if (!res.ok) return; // silently ignore if not logged in
+      if (!res.ok) return;
       const data = await res.json();
-      if (data.success && data.readChapters) setReadChapters(data.readChapters);
+      // Use server response as source of truth, dedupe just in case
+      if (data.success && data.readChapters) {
+        const deduped = [...new Set(data.readChapters as number[])].sort((a, b) => a - b);
+        setReadChapters(deduped);
+      }
     } catch (err) {
       console.warn("Could not mark chapter as read:", err);
+      // Keep optimistic update on error — better UX than reverting
     }
   };
 
