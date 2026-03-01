@@ -97,9 +97,8 @@ export function ChaptersSidebar({
     const fetchChapters = async () => {
       setIsLoading(true);
       try {
-        // ✅ Cached — chapter list doesn't change often
         const res = await fetch(`/api/manga/chapters?mangaId=${mangaId}`, {
-          next: { revalidate: 300 }, // revalidate every 5 minutes
+          next: { revalidate: 300 }, // cache for 5 minutes
         });
         const data = await res.json();
         if (data.chapters && data.chapters.length > 0) {
@@ -127,7 +126,6 @@ export function ChaptersSidebar({
   useEffect(() => {
     const fetchReadChapters = async () => {
       try {
-        // ✅ no-store — user read state must always be fresh, never cached
         const res = await fetch(
           `/api/manga/chapters/user-reads?mangaId=${mangaId}`,
           { cache: "no-store" }
@@ -139,7 +137,6 @@ export function ChaptersSidebar({
           const nums: number[] = data.readChapters
             .map((ch: any) => (typeof ch === "number" ? ch : parseFloat(ch)))
             .filter((ch: number) => !isNaN(ch));
-          // Dedupe in case DB still has dirty data
           const deduped = [...new Set(nums)].sort((a, b) => a - b);
           setReadChapters(deduped);
         } else {
@@ -242,34 +239,6 @@ export function ChaptersSidebar({
 
   const isChapterRead = (n: number) => readChapters.includes(n);
 
-  const markChapterAsRead = async (chapterNumber: number) => {
-    // ✅ Optimistic update — highlight immediately before API responds
-    setReadChapters((prev) => {
-      if (prev.includes(chapterNumber)) return prev;
-      return [...prev, chapterNumber].sort((a, b) => a - b);
-    });
-
-    try {
-      // ✅ no-store — never cache mutation requests
-      const res = await fetch("/api/manga/chapters/user-reads", {
-        method: "POST",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mangaId, chapterNumber }),
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      // Use server response as source of truth, dedupe just in case
-      if (data.success && data.readChapters) {
-        const deduped = [...new Set(data.readChapters as number[])].sort((a, b) => a - b);
-        setReadChapters(deduped);
-      }
-    } catch (err) {
-      console.warn("Could not mark chapter as read:", err);
-      // Keep optimistic update on error — better UX than reverting
-    }
-  };
-
   return (
     <div
       className="w-full flex flex-col bg-gradient-to-b from-slate-900/40 via-slate-900/20 to-transparent backdrop-blur-xl h-dvh lg:h-full lg:relative lg:border-l lg:border-slate-700/50"
@@ -359,7 +328,6 @@ export function ChaptersSidebar({
                         : `/manga/${mangaId}/chapter/${formatChapterForUrl(chapter.chapter_number)}`
                     }
                     className={isLocked ? "pointer-events-none" : ""}
-                    onClick={() => !isLocked && markChapterAsRead(chapter.chapter_number)}
                   >
                     <div
                       className={`p-3 my-1 rounded-lg transition-all duration-200 group border flex items-center justify-between active:scale-[0.98] relative overflow-hidden ${
