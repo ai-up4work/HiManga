@@ -140,6 +140,13 @@ export function Header() {
               <Home className="w-4 h-4 group-hover:scale-110 transition-transform duration-300" />
               <span>Home</span>
             </Link>
+             <Link
+              href="/trending"
+              className="flex items-center gap-2 text-white/70 hover:text-pink-500 transition-colors duration-300 font-semibold group"
+            >
+              <TrendingUp className="w-4 h-4 group-hover:scale-110 transition-transform duration-300" />
+              <span>Mangas</span>
+            </Link>
             <Link
               href="/library"
               className="flex items-center gap-2 text-white/70 hover:text-pink-500 transition-colors duration-300 font-semibold group"
@@ -147,13 +154,7 @@ export function Header() {
               <Library className="w-4 h-4 group-hover:scale-110 transition-transform duration-300" />
               <span>Library</span>
             </Link>
-            <Link
-              href="/trending"
-              className="flex items-center gap-2 text-white/70 hover:text-pink-500 transition-colors duration-300 font-semibold group"
-            >
-              <TrendingUp className="w-4 h-4 group-hover:scale-110 transition-transform duration-300" />
-              <span>Trending</span>
-            </Link>
+           
             <Link
               href="/news"
               className="flex items-center gap-2 text-white/70 hover:text-pink-500 transition-colors duration-300 font-semibold group"

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowRight, ChevronDown, X } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { useMangas } from "@/hooks/use-mangas";
+import Link from "next/link";
 
 // Skeleton card matching AnimeCard dimensions
 function SkeletonCard() {
@@ -180,16 +181,16 @@ export function TrendingSection() {
 
             {visibleCount < filteredMangas.length && (
               <div className="flex justify-center">
-                <Button
-                  size="lg"
-                  variant="outline"
-                  onClick={handleLoadMore}
-                  className="gap-2 bg-transparent border-pink-500/40 hover:text-pink-500/50 text-pink-500 rounded-full font-bold px-8"
-                >
-                  <span className="hidden sm:inline">Load More Manga</span>
-                  <span className="sm:hidden">Load More</span>
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
+                <Link href="/trending">
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="gap-2 bg-transparent border-pink-500/40 hover:text-pink-500/50 text-pink-500 rounded-full font-bold px-8"
+                  >
+                    View All Manga
+                    <ArrowRight className="w-4 h-4" />
+                  </Button>
+                </Link>
               </div>
             )}
 
