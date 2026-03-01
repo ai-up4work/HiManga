@@ -74,9 +74,10 @@ export function ChaptersSidebar({
   chapters: totalChapters,
   userId,
 }: ChaptersSidebarProps) {
-  const BATCH = 50;
+  // Each chapter row is ~56px tall. We want ~10 items above + below current.
+  const PADDING = 25; // items to render above and below current chapter
+  const BATCH = 50;   // default batch when no current chapter context
 
-  const [displayedChapters, setDisplayedChapters] = useState(BATCH);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -89,11 +90,13 @@ export function ChaptersSidebar({
   const [isLoading, setIsLoading] = useState(true);
   const [maxAvailableChapter, setMaxAvailableChapter] = useState(0);
 
-  const currentChapterRef = useRef<HTMLDivElement>(null);
-  const hasScrolledToCurrentRef = useRef(false);
+  // Window: [windowStart, windowEnd) indices into filteredChapters
+  const [windowStart, setWindowStart] = useState(0);
+  const [windowEnd, setWindowEnd] = useState(BATCH);
 
-  const filteredLengthRef = useRef(0);
+  const currentChapterRef = useRef<HTMLDivElement>(null);
   const isLoadingMoreRef = useRef(false);
+  const filteredLengthRef = useRef(0);
 
   // ── Fetch chapters ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -153,44 +156,6 @@ export function ChaptersSidebar({
     fetchReadChapters();
   }, [mangaId]);
 
-  // ── Scroll current chapter into center — production-safe ─────────────────
-  // Uses double RAF instead of setTimeout so it runs after the browser has
-  // actually painted, and getBoundingClientRect instead of offsetTop so it
-  // works correctly regardless of CSS minification or ancestor positioning.
-  useEffect(() => {
-    if (isLoading) return;
-
-    // Reset flag whenever sort/search/chapters change so we re-center
-    hasScrolledToCurrentRef.current = false;
-
-    let raf2: number;
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => {
-        if (hasScrolledToCurrentRef.current) return;
-        const container = scrollContainerRef.current;
-        const item = currentChapterRef.current;
-        if (!container || !item) return;
-
-        const containerRect = container.getBoundingClientRect();
-        const itemRect = item.getBoundingClientRect();
-
-        // Item's top relative to the container's scrollable area
-        const relativeTop =
-          itemRect.top - containerRect.top + container.scrollTop;
-        const scrollTo =
-          relativeTop - container.clientHeight / 2 + item.clientHeight / 2;
-
-        container.scrollTop = Math.max(0, scrollTo);
-        hasScrolledToCurrentRef.current = true;
-      });
-    });
-
-    return () => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
-    };
-  }, [isLoading, sortOrder, searchQuery, rawChapters]);
-
   const generateFallbackChapters = () => {
     const fallback = Array.from({ length: totalChapters }, (_, i) => ({
       id: `fallback-${i + 1}`,
@@ -223,20 +188,68 @@ export function ChaptersSidebar({
 
   filteredLengthRef.current = filteredChapters.length;
 
-  const currentChapterIndex = filteredChapters.findIndex(
+  // ── Compute window centered on current chapter ────────────────────────────
+  // We render PADDING items before and after the current chapter so the user
+  // has content to scroll into immediately in both directions.
+  const currentIdx = filteredChapters.findIndex(
     (ch) => ch.chapter_number === parseFloat(String(currentChapter))
   );
-  const minDisplayed =
-    currentChapterIndex >= 0
-      ? Math.max(BATCH, currentChapterIndex + 1)
-      : BATCH;
 
-  const effectiveDisplayed = Math.max(displayedChapters, minDisplayed);
-  const chaptersList = filteredChapters.slice(0, effectiveDisplayed);
-  const hasMore = effectiveDisplayed < filteredChapters.length;
+  const computedStart = currentIdx >= 0
+    ? Math.max(0, currentIdx - PADDING)
+    : 0;
+  const computedEnd = currentIdx >= 0
+    ? Math.min(filteredChapters.length, currentIdx + PADDING + 1)
+    : Math.min(filteredChapters.length, BATCH);
 
-  // ── Infinite scroll ───────────────────────────────────────────────────────
-  const sentinelRef = useRef<HTMLDivElement>(null);
+  // Merge with any user-expanded window (from scrolling)
+  const effectiveStart = Math.min(windowStart, computedStart);
+  const effectiveEnd = Math.max(windowEnd, computedEnd);
+
+  const chaptersList = filteredChapters.slice(effectiveStart, effectiveEnd);
+  const hasMore = effectiveEnd < filteredChapters.length;
+
+  // ── Reset window when search/sort changes ────────────────────────────────
+  useEffect(() => {
+    setWindowStart(0);
+    setWindowEnd(BATCH);
+    isLoadingMoreRef.current = false;
+    setIsLoadingMore(false);
+  }, [searchQuery, sortOrder]);
+
+  // ── Scroll current chapter to vertical center ─────────────────────────────
+  // Because we pre-render PADDING items below the current chapter, there is
+  // always content beneath it — so centering scrollTop works correctly and
+  // the user can immediately scroll down.
+  useEffect(() => {
+    if (isLoading) return;
+
+    let raf2: number;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        const container = scrollContainerRef.current;
+        const item = currentChapterRef.current;
+        if (!container || !item) return;
+
+        const containerRect = container.getBoundingClientRect();
+        const itemRect = item.getBoundingClientRect();
+        const relativeTop =
+          itemRect.top - containerRect.top + container.scrollTop;
+        const scrollTo =
+          relativeTop - container.clientHeight / 2 + item.clientHeight / 2;
+
+        container.scrollTop = Math.max(0, scrollTo);
+      });
+    });
+
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [isLoading, sortOrder, searchQuery, rawChapters]);
+
+  // ── Infinite scroll (bottom sentinel) ────────────────────────────────────
+  const bottomSentinelRef = useRef<HTMLDivElement>(null);
 
   const loadMore = useCallback(() => {
     if (isLoadingMoreRef.current) return;
@@ -244,21 +257,19 @@ export function ChaptersSidebar({
     isLoadingMoreRef.current = true;
     setIsLoadingMore(true);
     setTimeout(() => {
-      setDisplayedChapters((prev) => prev + 25);
+      setWindowEnd((prev) => Math.min(prev + 25, filteredLengthRef.current));
       isLoadingMoreRef.current = false;
       setIsLoadingMore(false);
     }, 200);
   }, []);
 
   useEffect(() => {
-    const sentinel = sentinelRef.current;
+    const sentinel = bottomSentinelRef.current;
     const container = scrollContainerRef.current;
     if (!sentinel || !container) return;
 
     const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) loadMore();
-      },
+      (entries) => { if (entries[0].isIntersecting) loadMore(); },
       { root: container, rootMargin: "0px 0px 200px 0px", threshold: 0 }
     );
 
@@ -266,12 +277,6 @@ export function ChaptersSidebar({
     return () => observer.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadMore, isLoading]);
-
-  useEffect(() => {
-    setDisplayedChapters(BATCH);
-    isLoadingMoreRef.current = false;
-    setIsLoadingMore(false);
-  }, [searchQuery, sortOrder]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const toggleSortOrder = () =>
@@ -449,7 +454,7 @@ export function ChaptersSidebar({
             )}
 
             {hasMore && (
-              <div ref={sentinelRef} className="h-4 w-full" aria-hidden="true" />
+              <div ref={bottomSentinelRef} className="h-4 w-full" aria-hidden="true" />
             )}
           </div>
         </>
