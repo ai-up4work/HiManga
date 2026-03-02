@@ -304,20 +304,20 @@ export function Header() {
               <span>Home</span>
             </Link>
             <Link
+              href="/trending"
+              className="flex items-center gap-4 text-white/70 hover:text-pink-500 hover:bg-white/5 transition-all duration-300 font-semibold px-4 py-3 rounded-xl"
+              onClick={() => setIsMenuOpen(false)}
+            >
+              <TrendingUp className="w-5 h-5" />
+              <span>Mangas</span>
+            </Link>
+            <Link
               href="/library"
               className="flex items-center gap-4 text-white/70 hover:text-pink-500 hover:bg-white/5 transition-all duration-300 font-semibold px-4 py-3 rounded-xl"
               onClick={() => setIsMenuOpen(false)}
             >
               <Library className="w-5 h-5" />
               <span>Library</span>
-            </Link>
-            <Link
-              href="/trending"
-              className="flex items-center gap-4 text-white/70 hover:text-pink-500 hover:bg-white/5 transition-all duration-300 font-semibold px-4 py-3 rounded-xl"
-              onClick={() => setIsMenuOpen(false)}
-            >
-              <TrendingUp className="w-5 h-5" />
-              <span>Trending</span>
             </Link>
             <Link
               href="/news"

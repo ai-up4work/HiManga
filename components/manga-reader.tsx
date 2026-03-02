@@ -588,9 +588,10 @@ export function MangaReader({
             </Button>
           )}
 
-          {showControls && !isFullscreen && (
+{showControls && !isFullscreen && (
             <div className="bg-gradient-to-r from-slate-900/80 to-slate-900/60 backdrop-blur-xl border-t border-cyan-500/20 p-4 flex-shrink-0 transition-all duration-300 relative z-40">
               <div className="flex items-center justify-between gap-2 flex-wrap">
+                {/* Left — sidebar + chapter nav */}
                 <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
@@ -629,6 +630,14 @@ export function MangaReader({
                   </Button>
                 </div>
 
+                {/* Center — manga title */}
+                <div className="hidden sm:flex flex-1 justify-center px-4 min-w-0">
+                  <p className="text-sm font-semibold text-slate-200 truncate max-w-xs tracking-wide">
+                    {mangaTitle}
+                  </p>
+                </div>
+
+                {/* Right — fullscreen, settings, close */}
                 <div className="flex items-center gap-1">
                   <Button
                     variant="outline"
@@ -669,7 +678,7 @@ export function MangaReader({
               </div>
             </div>
           )}
-
+          
           {showAdvancedControls && !isFullscreen && (
             <>
               <div
