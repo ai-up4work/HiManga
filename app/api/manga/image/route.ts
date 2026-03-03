@@ -29,19 +29,20 @@ async function fetchImageWithRetry(imageUrl: string, retries = 3): Promise<Respo
           "Sec-Fetch-Mode": "no-cors",
           "Sec-Fetch-Site": "same-origin",
         },
-        cache: "no-store",
+        // ✅ Changed from no-store to force-cache
+        // Vercel's internal fetch cache will cache the response
+        cache: "force-cache",
       });
     },
-    
     async () => {
       const proxiedUrl = "https://corsproxy.io/?" + encodeURIComponent(imageUrl);
       return fetch(proxiedUrl, {
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         },
+        cache: "force-cache",
       });
     },
-    
     async () => {
       await new Promise(resolve => setTimeout(resolve, 1000));
       return fetch(imageUrl, {
@@ -50,6 +51,7 @@ async function fetchImageWithRetry(imageUrl: string, retries = 3): Promise<Respo
           "Referer": "https://mangaread.org/",
           "Accept": "image/*",
         },
+        cache: "force-cache",
       });
     },
   ];
@@ -66,7 +68,6 @@ async function fetchImageWithRetry(imageUrl: string, retries = 3): Promise<Respo
         console.error(`Fetch attempt failed:`, error);
       }
     }
-    
     if (i < retries - 1) {
       await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
     }
@@ -102,20 +103,16 @@ export async function GET(request: NextRequest) {
   const cacheKey = getCacheKey(mangaSlug, chapterNum, panelNum);
 
   try {
-    // ✅ Redis cache for image URL only (Supabase lookup)
     let imageUrl: string | undefined;
 
     if (!skipCache) {
       const cachedUrl = await redis.get(cacheKey);
       if (cachedUrl) {
-        console.log(`[Manga Image] URL Cache HIT: ${mangaSlug} ch${chapterNum} p${panelNum}`);
         imageUrl = cachedUrl as string;
       }
     }
 
     if (!imageUrl) {
-      console.log(`[Manga Image] URL Cache MISS: Fetching ${mangaSlug} ch${chapterNum} p${panelNum}`);
-
       const { data, error } = await supabase
         .from("panels")
         .select(`
@@ -133,20 +130,14 @@ export async function GET(request: NextRequest) {
         .single();
 
       if (error || !data) {
-        console.error("Database query error:", error);
         return NextResponse.json({ error: "Image not found" }, { status: 404 });
       }
 
       imageUrl = data.image_url;
-
-      // ✅ Cache URL in Redis — 1 week since panel URLs never change
       await redis.set(cacheKey, imageUrl, 'EX', TTL.WEEK);
     }
 
-    // Fetch actual image with retry
-    console.log(`Fetching image: ${imageUrl}`);
     const imageResponse = await fetchImageWithRetry(imageUrl);
-
     const imageBuffer = await imageResponse.arrayBuffer();
     const contentType = imageResponse.headers.get("content-type") || "image/jpeg";
     const buffer = Buffer.from(imageBuffer);
@@ -154,12 +145,15 @@ export async function GET(request: NextRequest) {
     return new NextResponse(buffer, {
       headers: {
         "Content-Type": contentType,
-        "Cache-Control": "public, max-age=604800, immutable",
+        // ✅ This is the most important fix
+        // s-maxage tells Vercel's Edge Network to cache the response
+        // Once cached, requests NEVER hit your serverless function again
+        "Cache-Control": "public, s-maxage=604800, stale-while-revalidate=86400, immutable",
         "X-Content-Type-Options": "nosniff",
-        "X-Cache": "MISS",
         "Access-Control-Allow-Origin": "*",
       },
     });
+
   } catch (error) {
     console.error("Error fetching image:", error);
     return NextResponse.json(
