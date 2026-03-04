@@ -25,6 +25,13 @@ import { MobileCommentsOverlay } from "./mobile-comments-overlay";
 import { useBookmarks } from "@/hooks/use-bookmarks";
 import { useAuth } from "@/lib/auth-context";
 import Image from "next/image";
+import { AdsterraAd } from "@/components/adsterra-ad"; // ← NEW
+
+// ── Adsterra zone config ──────────────────────────────────────────────────────
+const END_OF_CHAPTER_AD = {
+  scriptSrc:   "https://pl28844175.effectivegatecpm.com/5989d5793e1618d757df7f53effce21a/invoke.js",
+  containerId: "container-5989d5793e1618d757df7f53effce21a",
+};
 
 interface MangaReaderProps {
   mangaId: string;
@@ -36,43 +43,6 @@ interface MangaReaderProps {
   nextChapter: number | null;
   totalChapters?: number;
 }
-
-// ── End-of-chapter Adsterra Native Banner ────────────────────────────────────
-
-const ADSTERRA_CONTAINER_ID = "container-5989d5793e1618d757df7f53effce21a";
-const ADSTERRA_SCRIPT_SRC   = "https://pl28844175.effectivegatecpm.com/5989d5793e1618d757df7f53effce21a/invoke.js";
-const ADS_ENABLED           = process.env.NEXT_PUBLIC_ADS_ENABLED === "true";
-
-function EndOfChapterAd() {
-  if (!ADS_ENABLED) return null;
-
-  const injected = useRef(false);
-
-  useEffect(() => {
-    if (injected.current) return;
-    if (document.querySelector(`script[src="${ADSTERRA_SCRIPT_SRC}"]`)) return;
-
-    const s = document.createElement("script");
-    s.src = ADSTERRA_SCRIPT_SRC;
-    s.async = true;
-    s.setAttribute("data-cfasync", "false");
-    document.body.appendChild(s);
-
-    injected.current = true;
-  }, []);
-
-  return (
-    <div className="w-full flex flex-col items-center py-6 gap-2 bg-slate-900/60 border-y border-slate-700/40">
-      {/* <p className="text-[10px] text-slate-600 uppercase tracking-widest select-none">
-        Advertisement
-      </p> */}
-      {/* Adsterra injects the native banner into this container */}
-      <div id={ADSTERRA_CONTAINER_ID} className="w-full" />
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 export function MangaReader({
   mangaId,
@@ -1034,8 +1004,18 @@ export function MangaReader({
                     <div className="text-center py-8 space-y-4">
                       <p className="text-slate-400 text-sm">End of chapter</p>
 
-                      {/* Monetag ad sits between "End of chapter" and the next button */}
-                      <EndOfChapterAd />
+                      {/* ↓ CHANGED: was <EndOfChapterAd /> — now uses shared AdsterraAd component */}
+                      <AdsterraAd
+                        scriptSrc={END_OF_CHAPTER_AD.scriptSrc}
+                        containerId={END_OF_CHAPTER_AD.containerId}
+                        showBorder
+                        showLabel
+                        labelPosition="top"
+                        padding="py-6"
+                        background="bg-slate-900/60"
+                        fullWidth
+                        centered
+                      />
 
                       {nextChapter && nextChapter <= totalChapters && (
                         <Button
