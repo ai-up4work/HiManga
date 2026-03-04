@@ -37,6 +37,41 @@ interface MangaReaderProps {
   totalChapters?: number;
 }
 
+// ── End-of-chapter Monetag Ad ─────────────────────────────────────────────────
+
+function EndOfChapterAd() {
+  if (process.env.NEXT_PUBLIC_ADS_ENABLED !== "true") return null;
+
+  const injected = useRef(false);
+  const zoneId = process.env.NEXT_PUBLIC_MONETAG_ZONE_ID || "10662299";
+
+  useEffect(() => {
+    const sessionKey = `ad_loaded_${zoneId}`;
+    if (injected.current) return;
+    if (sessionStorage.getItem(sessionKey)) return;
+    if (document.querySelector(`script[data-zone="${zoneId}"]`)) return;
+
+    const s = document.body.appendChild(document.createElement("script"));
+    s.dataset.zone = zoneId;
+    s.src = "https://nap5k.com/tag.min.js";
+
+    sessionStorage.setItem(sessionKey, "true");
+    injected.current = true;
+  }, [zoneId]);
+
+  return (
+    <div className="w-full flex flex-col items-center justify-center py-6 gap-2 bg-slate-900/60 border-y border-slate-700/40">
+      <p className="text-[10px] text-slate-600 uppercase tracking-widest select-none">
+        Advertisement
+      </p>
+      {/* Monetag renders into the page via the script above — this div is the visual spacer */}
+      <div style={{ minHeight: "90px", width: "100%" }} />
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function MangaReader({
   mangaId,
   mangaTitle,
@@ -888,14 +923,6 @@ export function MangaReader({
             </>
           )}
 
-          {/* <button
-            onClick={() => setIsCommentsOpen(true)}
-            className="absolute bottom-[2.5px] left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-1 bg-slate-800/90 border border-slate-700/50 hover:bg-slate-800 hover:border-cyan-400/40 text-slate-100 px-3 py-2 rounded-lg transition-all duration-200 group min-w-[60px]"
-          >
-            <ChevronUp className="w-4 h-4 text-cyan-400/60 group-hover:text-cyan-400 transition-colors" />
-            <span className="text-xs font-medium text-center">Comments</span>
-          </button> */}
-
           <div
             ref={scrollContainerRef}
             className="flex-1 overflow-y-auto flex flex-col items-center gap-4 p-4 scroll-smooth"
@@ -1000,9 +1027,14 @@ export function MangaReader({
                     </div>
                   )}
 
-                  {displayedPanels.length >= totalPanelsToUse && (
+                  {/* ── End of chapter: Ad → then Next Chapter button ── */}
+                  {displayedPanels.length >= totalPanelsToUse && totalPanelsToUse > 0 && (
                     <div className="text-center py-8 space-y-4">
                       <p className="text-slate-400 text-sm">End of chapter</p>
+
+                      {/* Monetag ad sits between "End of chapter" and the next button */}
+                      <EndOfChapterAd />
+
                       {nextChapter && nextChapter <= totalChapters && (
                         <Button
                           onClick={handleNextChapter}
