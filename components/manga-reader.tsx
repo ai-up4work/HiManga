@@ -37,35 +37,37 @@ interface MangaReaderProps {
   totalChapters?: number;
 }
 
-// ── End-of-chapter Monetag Ad ─────────────────────────────────────────────────
+// ── End-of-chapter Adsterra Native Banner ────────────────────────────────────
+
+const ADSTERRA_CONTAINER_ID = "container-5989d5793e1618d757df7f53effce21a";
+const ADSTERRA_SCRIPT_SRC   = "https://pl28844175.effectivegatecpm.com/5989d5793e1618d757df7f53effce21a/invoke.js";
+const ADS_ENABLED           = process.env.NEXT_PUBLIC_ADS_ENABLED === "true";
 
 function EndOfChapterAd() {
-  if (process.env.NEXT_PUBLIC_ADS_ENABLED !== "true") return null;
+  if (!ADS_ENABLED) return null;
 
   const injected = useRef(false);
-  const zoneId = process.env.NEXT_PUBLIC_MONETAG_ZONE_ID || "10662299";
 
   useEffect(() => {
-    const sessionKey = `ad_loaded_${zoneId}`;
     if (injected.current) return;
-    if (sessionStorage.getItem(sessionKey)) return;
-    if (document.querySelector(`script[data-zone="${zoneId}"]`)) return;
+    if (document.querySelector(`script[src="${ADSTERRA_SCRIPT_SRC}"]`)) return;
 
-    const s = document.body.appendChild(document.createElement("script"));
-    s.dataset.zone = zoneId;
-    s.src = "https://nap5k.com/tag.min.js";
+    const s = document.createElement("script");
+    s.src = ADSTERRA_SCRIPT_SRC;
+    s.async = true;
+    s.setAttribute("data-cfasync", "false");
+    document.body.appendChild(s);
 
-    sessionStorage.setItem(sessionKey, "true");
     injected.current = true;
-  }, [zoneId]);
+  }, []);
 
   return (
-    <div className="w-full flex flex-col items-center justify-center py-6 gap-2 bg-slate-900/60 border-y border-slate-700/40">
+    <div className="w-full flex flex-col items-center py-6 gap-2 bg-slate-900/60 border-y border-slate-700/40">
       <p className="text-[10px] text-slate-600 uppercase tracking-widest select-none">
         Advertisement
       </p>
-      {/* Monetag renders into the page via the script above — this div is the visual spacer */}
-      <div style={{ minHeight: "90px", width: "100%" }} />
+      {/* Adsterra injects the native banner into this container */}
+      <div id={ADSTERRA_CONTAINER_ID} className="w-full" />
     </div>
   );
 }
