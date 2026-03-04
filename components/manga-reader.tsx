@@ -63,9 +63,9 @@ function EndOfChapterAd() {
 
   return (
     <div className="w-full flex flex-col items-center py-6 gap-2 bg-slate-900/60 border-y border-slate-700/40">
-      <p className="text-[10px] text-slate-600 uppercase tracking-widest select-none">
+      {/* <p className="text-[10px] text-slate-600 uppercase tracking-widest select-none">
         Advertisement
-      </p>
+      </p> */}
       {/* Adsterra injects the native banner into this container */}
       <div id={ADSTERRA_CONTAINER_ID} className="w-full" />
     </div>

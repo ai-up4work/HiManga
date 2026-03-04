@@ -70,7 +70,7 @@ function formatChapterForUrl(num: number): string {
 // Uses the EXACT same injection pattern as Monetag's provided snippet
 
 function StickyBottomAd() {
-  if (process.env.NEXT_PUBLIC_ADS_ENABLED !== "true") return null;
+  if (process.env.NEXT_PUBLIC_ADS_ENABLED_MONETAG !== "true") return null;
 
   useEffect(() => {
     // Don't inject twice
