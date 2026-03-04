@@ -70,7 +70,7 @@ export function AdsterraAd({
 
   const label = (
     <p className="text-[10px] text-slate-600 uppercase tracking-widest select-none">
-      {labelText}
+      {/* {labelText} */}
     </p>
   );
 
