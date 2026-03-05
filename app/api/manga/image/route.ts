@@ -29,8 +29,6 @@ async function fetchImageWithRetry(imageUrl: string, retries = 3): Promise<Respo
           "Sec-Fetch-Mode": "no-cors",
           "Sec-Fetch-Site": "same-origin",
         },
-        // ✅ Changed from no-store to force-cache
-        // Vercel's internal fetch cache will cache the response
         cache: "force-cache",
       });
     },
@@ -145,12 +143,22 @@ export async function GET(request: NextRequest) {
     return new NextResponse(buffer, {
       headers: {
         "Content-Type": contentType,
-        // ✅ This is the most important fix
-        // s-maxage tells Vercel's Edge Network to cache the response
-        // Once cached, requests NEVER hit your serverless function again
+
+        // ── Cloudflare will cache this for 7 days ─────────────────────────────
+        // public        → cacheable by Cloudflare edge nodes
+        // s-maxage      → how long Cloudflare keeps it (7 days)
+        // stale-while-revalidate → serve stale while refreshing in background
+        // immutable     → URL content never changes, skip revalidation
         "Cache-Control": "public, s-maxage=604800, stale-while-revalidate=86400, immutable",
+
+        "Content-Disposition": "inline",
         "X-Content-Type-Options": "nosniff",
         "Access-Control-Allow-Origin": "*",
+
+        // ── Critical: Vary only on Accept-Encoding ────────────────────────────
+        // If Vary includes "Cookie" or "Authorization", Cloudflare treats every
+        // user as unique and NEVER serves from cache. Keep this as-is.
+        "Vary": "Accept-Encoding",
       },
     });
 
