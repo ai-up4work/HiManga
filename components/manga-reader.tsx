@@ -28,14 +28,14 @@ import Image from "next/image";
 import { AdsterraAd } from "@/components/adsterra-ad";
 
 // ── Single Adsterra zone ──────────────────────────────────────────────────────
-// One zone, three placements. They are always sequential so the container ID
+// One zone, two placements. They are always sequential so the container ID
 // is never duplicated in the DOM.
 const AD_ZONE = {
   scriptSrc:   "https://pl28844175.effectivegatecpm.com/5989d5793e1618d757df7f53effce21a/invoke.js",
   containerId: "container-5989d5793e1618d757df7f53effce21a",
 };
 
-type AdSlot = "loading" | "top-banner" | "end-of-chapter" | "none";
+type AdSlot = "top-banner" | "end-of-chapter" | "none";
 
 interface MangaReaderProps {
   mangaId: string;
@@ -88,110 +88,100 @@ export function MangaReader({
   const [scrollSpeed, setScrollSpeed] = useState(50);
 
   // ── Ad state ──────────────────────────────────────────────────────────────
-  // adKey increments force AdsterraAd to fully unmount+remount (fresh script).
-  // activeAdSlot drives which slot renders the ad. "none" = nothing in DOM.
-  const [activeAdSlot, setActiveAdSlot] = useState<AdSlot>(
-    providedTotalPanels ? "top-banner" : "loading"
-  );
+  // "none"          → no ad in DOM
+  // "top-banner"    → shown when panel 1 enters the viewport
+  // "end-of-chapter"→ shown when the last panel enters the viewport
+  // adKey increments force AdsterraAd to fully remount (fresh DOM node + script)
+  const [activeAdSlot, setActiveAdSlot] = useState<AdSlot>("none");
   const [adKey, setAdKey] = useState(0);
 
-  // Whether the top banner has scrolled out of view
-  const [topBannerVisible, setTopBannerVisible] = useState(true);
-  const topBannerRef = useRef<HTMLDivElement>(null);
+  // Refs to observe panel 1 and the last panel
+  const firstPanelRef = useRef<HTMLDivElement | null>(null);
+  const lastPanelRef  = useRef<HTMLDivElement | null>(null);
 
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const hasBookmarkedRef = useRef(false);
-  const bookmarkTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Guards — each ad fires exactly once per chapter load
+  const topBannerFiredRef    = useRef(false);
+  const endOfChapterFiredRef = useRef(false);
+
+  const scrollContainerRef  = useRef<HTMLDivElement>(null);
+  const controlsTimeoutRef  = useRef<NodeJS.Timeout | null>(null);
+  const hasBookmarkedRef    = useRef(false);
+  const bookmarkTimerRef    = useRef<NodeJS.Timeout | null>(null);
   const panelUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
   const panelRefs = useRef<{ [key: number]: HTMLDivElement | null }>({});
   const imageObserverRef = useRef<IntersectionObserver | null>(null);
 
-  const isLockedChapter = chapter > totalChapters;
+  const isLockedChapter  = chapter > totalChapters;
   const totalPanelsToUse = detectedTotalPanels || providedTotalPanels || 0;
-  const allPanelsLoaded = totalPanelsToUse > 0 && displayedPanels.length >= totalPanelsToUse;
+  const allPanelsLoaded  = totalPanelsToUse > 0 && displayedPanels.length >= totalPanelsToUse;
 
-  // ── Reset everything on chapter change ───────────────────────────────────
+  // ── Reset ad state on chapter change ─────────────────────────────────────
   useEffect(() => {
-    setTopBannerVisible(true);
-    setActiveAdSlot(providedTotalPanels ? "top-banner" : "loading");
+    setActiveAdSlot("none");
     setAdKey((k) => k + 1);
-  }, [chapter, providedTotalPanels]);
+    topBannerFiredRef.current    = false;
+    endOfChapterFiredRef.current = false;
+    firstPanelRef.current        = null;
+    lastPanelRef.current         = null;
+  }, [chapter]);
 
-  // ── Ad slot state machine ─────────────────────────────────────────────────
-  //
-  // The rules are simple and linear:
-  //
-  //  1. While loading          → slot = "loading"
-  //  2. Loading done           → slot = "top-banner"  (panels just appeared)
-  //  3. Top banner scrolled past → slot = "none"       (banner gone, ad removed)
-  //  4. All panels loaded      → slot = "end-of-chapter"
-  //
-  // Rules 2 and 4 can race (fast connection = loading ends AND all panels
-  // appear almost simultaneously). Rule 4 always wins because it's the
-  // most valuable placement — we check allPanelsLoaded first.
-
-  useEffect(() => {
-    // Rule 4: all panels loaded → always go to end-of-chapter regardless of
-    // what the current slot is. This handles the race condition where loading
-    // finishes so fast that top-banner never had a chance to render.
-    if (allPanelsLoaded) {
-      // Small delay so the panel DOM is fully painted before the ad mounts
-      const t = setTimeout(() => {
-        setActiveAdSlot("none");
-        setTimeout(() => {
-          setAdKey((k) => k + 1);
-          setActiveAdSlot("end-of-chapter");
-        }, 100);
-      }, 300);
-      return () => clearTimeout(t);
-    }
-  }, [allPanelsLoaded]);
-
-  useEffect(() => {
-    // Rule 2: loading finished and not all panels loaded yet → top-banner
-    if (
-      !isFetchingChapterInfo &&
-      !isDetecting &&
-      displayedPanels.length > 0 &&
-      !allPanelsLoaded &&
-      activeAdSlot === "loading"
-    ) {
-      setActiveAdSlot("none");
-      setTimeout(() => {
-        setAdKey((k) => k + 1);
-        setActiveAdSlot("top-banner");
-        setTopBannerVisible(true);
-      }, 100);
-    }
-  }, [isFetchingChapterInfo, isDetecting, displayedPanels.length, allPanelsLoaded, activeAdSlot]);
-
-  useEffect(() => {
-    // Rule 3: top banner scrolled past → remove from DOM
-    if (activeAdSlot === "top-banner" && !topBannerVisible) {
-      setActiveAdSlot("none");
+  // ── Helper: switch slot cleanly ───────────────────────────────────────────
+  // Sets "none" first so the old container div is removed from the DOM,
+  // then after 100ms mounts the new slot with a fresh adKey.
+  const switchToSlot = useCallback((slot: AdSlot) => {
+    setActiveAdSlot("none");
+    setTimeout(() => {
       setAdKey((k) => k + 1);
-    }
-  }, [topBannerVisible, activeAdSlot]);
+      setActiveAdSlot(slot);
+    }, 100);
+  }, []);
 
-  // ── Top banner IntersectionObserver ──────────────────────────────────────
+  // ── Viewport observer: panel 1 → top-banner ───────────────────────────────
+  // Fires once when panel 1 enters the viewport for the first time.
+  // This means: supabase data received, loading UI is gone, user sees panel 1.
   useEffect(() => {
-    if (activeAdSlot !== "top-banner") return;
-    const el = topBannerRef.current;
-    if (!el) return;
+    if (isFetchingChapterInfo || isDetecting) return;
+    if (!firstPanelRef.current) return;
+    if (topBannerFiredRef.current) return;
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (!entry.isIntersecting) {
-          setTopBannerVisible(false);
+        if (entry.isIntersecting && !topBannerFiredRef.current) {
+          topBannerFiredRef.current = true;
+          observer.disconnect();
+          switchToSlot("top-banner");
         }
       },
-      { threshold: 0 }
+      { threshold: 0.1 }
     );
 
-    observer.observe(el);
+    observer.observe(firstPanelRef.current);
     return () => observer.disconnect();
-  }, [activeAdSlot, topBannerRef.current]);
+  }, [isFetchingChapterInfo, isDetecting, firstPanelRef.current, switchToSlot]);
+
+  // ── Viewport observer: last panel → end-of-chapter ────────────────────────
+  // Fires once when the last panel enters the viewport.
+  // allPanelsLoaded must be true first (all batches fetched) so we know
+  // which panel is actually the last one.
+  useEffect(() => {
+    if (!allPanelsLoaded) return;
+    if (!lastPanelRef.current) return;
+    if (endOfChapterFiredRef.current) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && !endOfChapterFiredRef.current) {
+          endOfChapterFiredRef.current = true;
+          observer.disconnect();
+          switchToSlot("end-of-chapter");
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    observer.observe(lastPanelRef.current);
+    return () => observer.disconnect();
+  }, [allPanelsLoaded, lastPanelRef.current, switchToSlot]);
 
   // ── Shared ad props ───────────────────────────────────────────────────────
   const sharedAdProps = {
@@ -955,20 +945,9 @@ export function MangaReader({
               .panels-fadein { animation: fadeInUp 0.35s ease-out both; }
             `}</style>
 
-            {/* ── SLOT 1: Loading screen ─────────────────────────────────────── */}
+            {/* ── Loading screen ─────────────────────────────────────────────── */}
             {(isFetchingChapterInfo || isDetecting) && (
               <div className="w-full max-w-2xl flex flex-col items-center justify-center min-h-[70vh] gap-8 px-4 py-8">
-                {activeAdSlot === "loading" && (
-                  <div className="w-full">
-                    <AdsterraAd
-                      key={adKey}
-                      {...sharedAdProps}
-                      showBorder
-                      padding="py-4"
-                      background="bg-slate-900/60"
-                    />
-                  </div>
-                )}
                 <div className="w-full flex flex-col items-center gap-4">
                   <div className="relative flex items-center justify-center">
                     <div className="w-14 h-14 rounded-full border-2 border-slate-700/60" />
@@ -1035,64 +1014,75 @@ export function MangaReader({
                   className="w-full space-y-0 transition-all duration-300 panels-fadein"
                   style={{ maxWidth: `${(panelWidth / 100) * 64}rem` }}
                 >
-                  {/* ── SLOT 2: Top-of-chapter banner ─────────────────────────
-                      Renders only when slot is "top-banner".
-                      IntersectionObserver sets topBannerVisible=false when
-                      it scrolls out — Rule 3 useEffect removes it from DOM.
+                  {/* ── Panel list ────────────────────────────────────────────
+                      Panel 1 gets firstPanelRef — IntersectionObserver fires
+                      top-banner when it enters the viewport.
+                      Last panel gets lastPanelRef — fires end-of-chapter ad.
                   ──────────────────────────────────────────────────────────── */}
-                  {activeAdSlot === "top-banner" && (
-                    <div ref={topBannerRef} className="mb-2">
-                      <AdsterraAd
-                        key={adKey}
-                        {...sharedAdProps}
-                        showBorder={false}
-                        padding="py-3"
-                        background="bg-slate-900/40"
-                      />
-                    </div>
-                  )}
+                  {displayedPanels.map((panelNumber) => {
+                    const isFirstPanel = panelNumber === 1;
+                    const isLastPanel  = allPanelsLoaded && panelNumber === displayedPanels[displayedPanels.length - 1];
 
-                  {/* ── Panel list ── */}
-                  {displayedPanels.map((panelNumber) => (
-                    <div
-                      key={panelNumber}
-                      ref={(el) => { panelRefs.current[panelNumber] = el; }}
-                      data-panel={panelNumber}
-                      className="relative group overflow-hidden shadow-2xl border border-cyan-500/20 hover:border-cyan-400 transition-all hover:shadow-lg hover:shadow-cyan-500/20"
-                    >
-                      {loadingPanels.has(panelNumber) ? (
-                        <PanelLoadingPlaceholder panelNumber={panelNumber} />
-                      ) : (
-                        <Image
-                          src={getOptimizedPanelUrl(panelNumber)}
-                          alt={`Panel ${panelNumber}`}
-                          width={800}
-                          height={1200}
-                          className="w-full h-auto"
-                          loading="lazy"
-                          data-src={getOptimizedPanelUrl(panelNumber)}
-                          onLoadStart={() => handleImageLoadStart(panelNumber)}
-                          onLoad={() => handleImageLoadComplete(panelNumber)}
-                          onError={() => handleImageLoadError(panelNumber)}
-                        />
-                      )}
-                      <div className="absolute bottom-2 right-2 bg-slate-900/80 backdrop-blur px-2 py-1 rounded text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity">
-                        Panel {panelNumber} / {totalPanelsToUse}
-                        {loadingPanels.has(panelNumber) && " (Loading...)"}
+                    return (
+                      <div key={panelNumber}>
+                        {/* TOP AD — renders above panel 1 once slot is active */}
+                        {isFirstPanel && activeAdSlot === "top-banner" && (
+                          <div className="mb-2">
+                            <AdsterraAd
+                              key={adKey}
+                              {...sharedAdProps}
+                              showBorder={false}
+                              padding="py-3"
+                              background="bg-slate-900/40"
+                            />
+                          </div>
+                        )}
+
+                        <div
+                          ref={(el) => {
+                            panelRefs.current[panelNumber] = el;
+                            // Assign viewport observer refs
+                            if (isFirstPanel) firstPanelRef.current = el;
+                            if (isLastPanel)  lastPanelRef.current  = el;
+                          }}
+                          data-panel={panelNumber}
+                          className="relative group overflow-hidden shadow-2xl border border-cyan-500/20 hover:border-cyan-400 transition-all hover:shadow-lg hover:shadow-cyan-500/20"
+                        >
+                          {loadingPanels.has(panelNumber) ? (
+                            <PanelLoadingPlaceholder panelNumber={panelNumber} />
+                          ) : (
+                            <Image
+                              src={getOptimizedPanelUrl(panelNumber)}
+                              alt={`Panel ${panelNumber}`}
+                              width={800}
+                              height={1200}
+                              className="w-full h-auto"
+                              loading="lazy"
+                              data-src={getOptimizedPanelUrl(panelNumber)}
+                              onLoadStart={() => handleImageLoadStart(panelNumber)}
+                              onLoad={() => handleImageLoadComplete(panelNumber)}
+                              onError={() => handleImageLoadError(panelNumber)}
+                            />
+                          )}
+                          <div className="absolute bottom-2 right-2 bg-slate-900/80 backdrop-blur px-2 py-1 rounded text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity">
+                            Panel {panelNumber} / {totalPanelsToUse}
+                            {loadingPanels.has(panelNumber) && " (Loading...)"}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
 
+                  {/* Batch-load spinner */}
                   {isLoading && (
                     <div className="flex justify-center py-8">
                       <Loader2 className="w-6 h-6 animate-spin text-cyan-400" />
                     </div>
                   )}
 
-                  {/* ── SLOT 3: End-of-chapter ────────────────────────────────
-                      Rule 4 useEffect fires switchAdSlot("end-of-chapter")
-                      when allPanelsLoaded becomes true — regardless of which
-                      slot was active before. This is always the final state.
+                  {/* ── End of chapter ────────────────────────────────────────
+                      BOTTOM AD — renders when end-of-chapter slot is active,
+                      which is triggered by the last panel entering the viewport.
                   ──────────────────────────────────────────────────────────── */}
                   {allPanelsLoaded && (
                     <div className="text-center py-8 space-y-4">
