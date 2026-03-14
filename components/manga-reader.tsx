@@ -25,12 +25,23 @@ import { MobileCommentsOverlay } from "./mobile-comments-overlay";
 import { useBookmarks } from "@/hooks/use-bookmarks";
 import { useAuth } from "@/lib/auth-context";
 import Image from "next/image";
-import { AdsterraAd } from "@/components/adsterra-ad"; // ← NEW
+import { AdsterraAd } from "@/components/adsterra-ad";
 
 // ── Adsterra zone config ──────────────────────────────────────────────────────
 const END_OF_CHAPTER_AD = {
   scriptSrc:   "https://pl28844175.effectivegatecpm.com/5989d5793e1618d757df7f53effce21a/invoke.js",
   containerId: "container-5989d5793e1618d757df7f53effce21a",
+};
+
+// Separate zones for top banner and loading screen — swap in real zone IDs from Adsterra dashboard
+const TOP_BANNER_AD = {
+  scriptSrc:   "https://pl28844175.effectivegatecpm.com/5989d5793e1618d757df7f53effce21a/invoke.js",
+  containerId: "container-top-banner-5989d5793e1618d757df7f53effce21a",
+};
+
+const LOADING_SCREEN_AD = {
+  scriptSrc:   "https://pl28844175.effectivegatecpm.com/5989d5793e1618d757df7f53effce21a/invoke.js",
+  containerId: "container-loading-5989d5793e1618d757df7f53effce21a",
 };
 
 interface MangaReaderProps {
@@ -96,7 +107,6 @@ export function MangaReader({
 
   const isLockedChapter = chapter > totalChapters;
 
-  // ✅ FIX: Don't pad decimal chapters — 314.1 stays "314.1" not "314."
   const getOptimizedPanelUrl = (panelNumber: number) => {
     const chapterStr = Number.isInteger(chapter)
       ? String(chapter).padStart(3, "0")
@@ -251,12 +261,10 @@ export function MangaReader({
     if (isFetchingChapterInfo || isDetecting) return;
 
     if (!displayedPanels.includes(shouldScrollToPanel)) {
-      console.log(`Panel ${shouldScrollToPanel} not yet loaded, waiting...`);
       return;
     }
 
     if (!targetPanelElement) {
-      console.log(`Panel ${shouldScrollToPanel} element not in DOM yet, retrying...`);
       const retryTimeout = setTimeout(() => {
         const retryElement = panelRefs.current[shouldScrollToPanel];
         if (retryElement) {
@@ -292,8 +300,6 @@ export function MangaReader({
       const data = await response.json();
 
       if (!response.ok) {
-        console.error("API Error:", data);
-
         if (response.status === 404) {
           const fallbackPanelCount = 100;
           setDetectedTotalPanels(fallbackPanelCount);
@@ -324,8 +330,6 @@ export function MangaReader({
         }
       }
     } catch (error) {
-      console.error("Error fetching chapter info:", error);
-
       const fallbackPanelCount = 100;
       setDetectedTotalPanels(fallbackPanelCount);
 
@@ -482,7 +486,6 @@ export function MangaReader({
     }
   }, [isFullscreen]);
 
-  // ✅ FIX: Use formatChapterForUrl for navigation hrefs
   const handlePreviousChapter = () => {
     if (previousChapter !== null && previousChapter !== undefined) {
       window.location.href = `/manga/${mangaId}/chapter/${formatChapterForUrl(previousChapter)}`;
@@ -530,7 +533,7 @@ export function MangaReader({
 
   return (
     <div className="h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex flex-col overflow-hidden">
-    {!isFullscreen && <Header />}
+      {!isFullscreen && <Header />}
 
       {bookmarkSaved && (
         <div className="fixed top-20 right-4 z-[100] animate-in slide-in-from-right duration-300">
@@ -595,7 +598,7 @@ export function MangaReader({
             </Button>
           )}
 
-{showControls && !isFullscreen && (
+          {showControls && !isFullscreen && (
             <div className="bg-gradient-to-r from-slate-900/80 to-slate-900/60 backdrop-blur-xl border-t border-cyan-500/20 p-4 flex-shrink-0 transition-all duration-300 relative z-40">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 {/* Left — sidebar + chapter nav */}
@@ -685,7 +688,7 @@ export function MangaReader({
               </div>
             </div>
           )}
-          
+
           {showAdvancedControls && !isFullscreen && (
             <>
               <div
@@ -895,6 +898,9 @@ export function MangaReader({
             </>
           )}
 
+          {/* ─────────────────────────────────────────────────────────────────── */}
+          {/* Scroll container                                                    */}
+          {/* ─────────────────────────────────────────────────────────────────── */}
           <div
             ref={scrollContainerRef}
             className="flex-1 overflow-y-auto flex flex-col items-center gap-4 p-4 scroll-smooth"
@@ -909,21 +915,79 @@ export function MangaReader({
               div::-webkit-scrollbar-track { background: transparent; }
               div::-webkit-scrollbar-thumb { background: rgba(6, 182, 212, 0.3); border-radius: 4px; }
               div::-webkit-scrollbar-thumb:hover { background: rgba(6, 182, 212, 0.5); }
+
+              @keyframes loadingSlide {
+                0%   { transform: translateX(-100%); }
+                100% { transform: translateX(350%); }
+              }
+
+              @keyframes fadeInUp {
+                0%   { opacity: 0; transform: translateY(12px); }
+                100% { opacity: 1; transform: translateY(0); }
+              }
+
+              .panels-fadein {
+                animation: fadeInUp 0.35s ease-out both;
+              }
             `}</style>
 
+            {/* ── Loading screen: ad + animated progress ── */}
             {(isFetchingChapterInfo || isDetecting) && (
-              <div className="w-full max-w-4xl flex flex-col items-center justify-center min-h-[60vh] space-y-6">
-                <div className="relative">
-                  <Loader2 className="w-16 h-16 text-cyan-500 animate-spin" />
-                  <div className="absolute inset-0 blur-xl bg-cyan-500/20 rounded-full"></div>
+              <div className="w-full max-w-2xl flex flex-col items-center justify-center min-h-[70vh] gap-8 px-4 py-8">
+
+                {/* Ad unit shown during dead load time */}
+                <div className="w-full">
+                  <AdsterraAd
+                    scriptSrc={LOADING_SCREEN_AD.scriptSrc}
+                    containerId={LOADING_SCREEN_AD.containerId}
+                    showBorder
+                    showLabel
+                    labelPosition="top"
+                    padding="py-4"
+                    background="bg-slate-900/60"
+                    fullWidth
+                    centered
+                  />
                 </div>
-                <div className="text-center space-y-2">
-                  <h2 className="text-xl font-bold text-slate-200">Loading Chapter Info...</h2>
-                  <p className="text-sm text-slate-500">Fetching panel data from database</p>
+
+                {/* Spinner + progress bar */}
+                <div className="w-full flex flex-col items-center gap-4">
+                  <div className="relative flex items-center justify-center">
+                    {/* Outer ring */}
+                    <div className="w-14 h-14 rounded-full border-2 border-slate-700/60" />
+                    {/* Spinning arc */}
+                    <Loader2 className="absolute w-14 h-14 text-cyan-500 animate-spin" />
+                    {/* Inner glow dot */}
+                    <div className="absolute w-3 h-3 rounded-full bg-cyan-400/80" />
+                  </div>
+
+                  <div className="w-full max-w-xs flex flex-col gap-2">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-400 font-medium">
+                        Chapter {chapter}
+                      </span>
+                      <span className="text-cyan-500 animate-pulse tracking-wide">
+                        Loading…
+                      </span>
+                    </div>
+
+                    {/* Indeterminate shimmer bar */}
+                    <div className="h-[3px] w-full rounded-full bg-slate-800 overflow-hidden">
+                      <div
+                        className="h-full w-[38%] rounded-full bg-gradient-to-r from-transparent via-cyan-400 to-transparent"
+                        style={{ animation: "loadingSlide 1.4s ease-in-out infinite" }}
+                      />
+                    </div>
+
+                    <p className="text-xs text-slate-600 text-center mt-1">
+                      Fetching panel data from database
+                    </p>
+                  </div>
                 </div>
               </div>
             )}
 
+            {/* ── Error state ── */}
             {(fetchError || detectionError) && !isFetchingChapterInfo && !isDetecting && (
               <div className="w-full max-w-4xl flex flex-col items-center justify-center min-h-[40vh] space-y-4">
                 <AlertCircle className="w-12 h-12 text-yellow-500" />
@@ -937,6 +1001,7 @@ export function MangaReader({
               </div>
             )}
 
+            {/* ── Locked chapter ── */}
             {isLockedChapter ? (
               <div className="w-full max-w-4xl flex flex-col items-center justify-center min-h-[60vh] space-y-6">
                 <div className="relative">
@@ -956,13 +1021,30 @@ export function MangaReader({
                 </Button>
               </div>
             ) : (
+              /* ── Panels ── */
               !isFetchingChapterInfo &&
               !isDetecting &&
               displayedPanels.length > 0 && (
                 <div
-                  className="w-full space-y-0 transition-all duration-300"
+                  className="w-full space-y-0 transition-all duration-300 panels-fadein"
                   style={{ maxWidth: `${(panelWidth / 100) * 64}rem` }}
                 >
+                  {/* ── Top-of-chapter banner — scrolls away naturally ── */}
+                  <div className="mb-2">
+                    <AdsterraAd
+                      scriptSrc={TOP_BANNER_AD.scriptSrc}
+                      containerId={`${TOP_BANNER_AD.containerId}-ch${chapter}`}
+                      showBorder={false}
+                      showLabel
+                      labelPosition="top"
+                      padding="py-3"
+                      background="bg-slate-900/40"
+                      fullWidth
+                      centered
+                    />
+                  </div>
+
+                  {/* ── Panel list ── */}
                   {displayedPanels.map((panelNumber) => (
                     <div
                       key={panelNumber}
@@ -993,21 +1075,21 @@ export function MangaReader({
                     </div>
                   ))}
 
+                  {/* Batch-load spinner */}
                   {isLoading && (
                     <div className="flex justify-center py-8">
                       <Loader2 className="w-6 h-6 animate-spin text-cyan-400" />
                     </div>
                   )}
 
-                  {/* ── End of chapter: Ad → then Next Chapter button ── */}
+                  {/* ── End of chapter: Ad → Next chapter button ── */}
                   {displayedPanels.length >= totalPanelsToUse && totalPanelsToUse > 0 && (
                     <div className="text-center py-8 space-y-4">
                       <p className="text-slate-400 text-sm">End of chapter</p>
 
-                      {/* ↓ CHANGED: was <EndOfChapterAd /> — now uses shared AdsterraAd component */}
                       <AdsterraAd
                         scriptSrc={END_OF_CHAPTER_AD.scriptSrc}
-                        containerId={END_OF_CHAPTER_AD.containerId}
+                        containerId={`${END_OF_CHAPTER_AD.containerId}-ch${chapter}`}
                         showBorder
                         showLabel
                         labelPosition="top"
@@ -1045,8 +1127,8 @@ export function MangaReader({
   );
 }
 
-// ✅ Helper used by handlePreviousChapter / handleNextChapter
+// ── Helper used by handlePreviousChapter / handleNextChapter ──────────────────
 function formatChapterForUrl(num: number): string {
   if (Number.isInteger(num)) return String(num);
-  return String(parseFloat(num.toFixed(2))).replace('.', '-'); // 314.1 → "314-1"
+  return String(parseFloat(num.toFixed(2))).replace(".", "-");
 }
