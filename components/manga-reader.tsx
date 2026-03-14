@@ -1031,9 +1031,10 @@ export function MangaReader({
                 >
                   {/* ── Top-of-chapter banner — scrolls away naturally ── */}
                   <div className="mb-2">
+                    <div key={`top-banner-${chapter}`} className="mb-2">
                     <AdsterraAd
                       scriptSrc={TOP_BANNER_AD.scriptSrc}
-                      containerId={`${TOP_BANNER_AD.containerId}-ch${chapter}`}
+                      containerId={TOP_BANNER_AD.containerId}
                       showBorder={false}
                       showLabel
                       labelPosition="top"
@@ -1089,7 +1090,7 @@ export function MangaReader({
 
                       <AdsterraAd
                         scriptSrc={END_OF_CHAPTER_AD.scriptSrc}
-                        containerId={`${END_OF_CHAPTER_AD.containerId}-ch${chapter}`}
+                        containerId={END_OF_CHAPTER_AD.containerId}
                         showBorder
                         showLabel
                         labelPosition="top"
