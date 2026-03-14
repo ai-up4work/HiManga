@@ -6,7 +6,6 @@ import { Card } from "@/components/ui/card";
 import {
   ChevronLeft,
   ChevronRight,
-  ChevronUp,
   Menu,
   X,
   Loader2,
@@ -27,73 +26,17 @@ import { useAuth } from "@/lib/auth-context";
 import Image from "next/image";
 import { AdsterraAd } from "@/components/adsterra-ad";
 
-// ── Adsterra native banner zone (loading screen + top banner) ─────────────────
-// Single zone shared between loading and top-banner slots.
-// Only one is ever in the DOM at a time — no container ID conflict.
+// ── Single Adsterra zone ──────────────────────────────────────────────────────
+// One zone ID is used across all three placements. They are sequential —
+// loading screen → top banner → end of chapter — so only one is ever
+// in the DOM at a time. No conflict, no duplicate container IDs.
 const AD_ZONE = {
   scriptSrc:   "https://pl28844175.effectivegatecpm.com/5989d5793e1618d757df7f53effce21a/invoke.js",
   containerId: "container-5989d5793e1618d757df7f53effce21a",
 };
 
-// ── End-of-chapter iframe banner (separate network / format) ──────────────────
-// This is always in the DOM once panels finish loading — no slot conflict
-// because it uses its own script + iframe, not the Adsterra container above.
-const BOTTOM_BANNER = {
-  atKey:    "4926ae8bee0daefb765d260889536807",
-  src:      "https://www.highperformanceformat.com/4926ae8bee0daefb765d260889536807/invoke.js",
-  height:   90,
-  width:    728,
-};
-
-// ── BottomBannerAd component ──────────────────────────────────────────────────
-// Injects the iframe banner script once on mount, cleans up on unmount.
-function BottomBannerAd({ chapterKey }: { chapterKey: number | string }) {
-  const injected = useRef(false);
-  const containerId = `bottom-banner-container-${chapterKey}`;
-
-  useEffect(() => {
-    if (injected.current) return;
-    injected.current = true;
-
-    // Set atOptions on window before the script loads
-    (window as any).atOptions = {
-      key:    BOTTOM_BANNER.atKey,
-      format: "iframe",
-      height: BOTTOM_BANNER.height,
-      width:  BOTTOM_BANNER.width,
-      params: {},
-    };
-
-    const s = document.createElement("script");
-    s.src = BOTTOM_BANNER.src;
-    s.async = true;
-    s.setAttribute("data-bottom-banner", containerId);
-    document.body.appendChild(s);
-
-    return () => {
-      const el = document.querySelector(`script[data-bottom-banner="${containerId}"]`);
-      if (el) el.remove();
-      injected.current = false;
-    };
-  }, [containerId]);
-
-  return (
-    <div className="w-full flex flex-col items-center py-4 bg-slate-900/60 border-y border-slate-700/40">
-      <p className="text-[10px] text-slate-600 uppercase tracking-widest mb-2 select-none">
-        Advertisement
-      </p>
-      {/* The iframe banner script targets the page body — this div is just
-          the visual container so the ad sits in the right place in the layout */}
-      <div
-        id={containerId}
-        style={{ width: BOTTOM_BANNER.width, maxWidth: "100%", height: BOTTOM_BANNER.height }}
-      />
-    </div>
-  );
-}
-
-// ── Ad slot type for the native banner (loading / top-banner only) ────────────
-type AdSlot = "loading" | "top-banner" | "none";
+// Which ad slot is currently active
+type AdSlot = "loading" | "top-banner" | "end-of-chapter" | "none";
 
 interface MangaReaderProps {
   mangaId: string;
@@ -138,85 +81,79 @@ export function MangaReader({
   const [loadingPanels, setLoadingPanels] = useState<Set<number>>(new Set());
   const [loadedPanels, setLoadedPanels] = useState<Set<number>>(new Set());
 
+  // ── Ad slot state ─────────────────────────────────────────────────────────
+  // Controls which of the three placements renders the single zone at any moment.
+  // "loading"       → shown while chapter info is being fetched
+  // "top-banner"    → shown at top of panel list, scrolls away naturally
+  // "end-of-chapter"→ shown when all panels are loaded
+  // "none"          → no ad in DOM (transition moment between slots)
+  const [activeAdSlot, setActiveAdSlot] = useState<AdSlot>(
+    providedTotalPanels ? "top-banner" : "loading"
+  );
+  // Key increments force AdsterraAd to fully remount (new DOM node = fresh script)
+  const [adKey, setAdKey] = useState(0);
+  const topBannerRef = useRef<HTMLDivElement>(null);
+  const topBannerDismissedRef = useRef(false);
+
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [brightness, setBrightness] = useState(100);
   const [contrast, setContrast] = useState(100);
   const [saturation, setSaturation] = useState(100);
   const [panelWidth, setPanelWidth] = useState(80);
   const [scrollSpeed, setScrollSpeed] = useState(50);
-
-  // ── Native banner ad slot (loading ↔ top-banner only) ────────────────────
-  const [activeAdSlot, setActiveAdSlot] = useState<AdSlot>(
-    providedTotalPanels ? "top-banner" : "loading"
-  );
-  const [adKey, setAdKey] = useState(0);
-
-  // Refs for top-banner viewport observation
-  const firstPanelRef     = useRef<HTMLDivElement | null>(null);
-  const topBannerFiredRef = useRef(false);
-
-  const scrollContainerRef  = useRef<HTMLDivElement>(null);
-  const controlsTimeoutRef  = useRef<NodeJS.Timeout | null>(null);
-  const hasBookmarkedRef    = useRef(false);
-  const bookmarkTimerRef    = useRef<NodeJS.Timeout | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hasBookmarkedRef = useRef(false);
+  const bookmarkTimerRef = useRef<NodeJS.Timeout | null>(null);
   const panelUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
   const panelRefs = useRef<{ [key: number]: HTMLDivElement | null }>({});
   const imageObserverRef = useRef<IntersectionObserver | null>(null);
 
-  const isLockedChapter  = chapter > totalChapters;
-  const totalPanelsToUse = detectedTotalPanels || providedTotalPanels || 0;
-  const allPanelsLoaded  = totalPanelsToUse > 0 && displayedPanels.length >= totalPanelsToUse;
+  const isLockedChapter = chapter > totalChapters;
 
-  // ── Reset ad state on chapter change ─────────────────────────────────────
-  useEffect(() => {
-    setActiveAdSlot(providedTotalPanels ? "top-banner" : "loading");
-    setAdKey((k) => k + 1);
-    topBannerFiredRef.current = false;
-    firstPanelRef.current     = null;
-  }, [chapter, providedTotalPanels]);
-
-  // ── Switch slot cleanly: "none" → 100ms → new slot ───────────────────────
-  const switchToSlot = useCallback((slot: AdSlot) => {
+  // ── Transition between ad slots ───────────────────────────────────────────
+  // Always unmount current ad first (set "none"), wait one tick for React to
+  // remove the old container div from the DOM, then mount the new slot.
+  // This guarantees the container ID is never duplicated in the DOM.
+  const switchAdSlot = useCallback((next: AdSlot) => {
     setActiveAdSlot("none");
     setTimeout(() => {
-      setAdKey((k) => k + 1);
-      setActiveAdSlot(slot);
-    }, 100);
+      setAdKey((k) => k + 1); // new key = fresh AdsterraAd instance
+      setActiveAdSlot(next);
+    }, 80); // 80ms — enough for React to flush the unmount
   }, []);
 
-  // ── TRANSITION: loading → top-banner ─────────────────────────────────────
-  // Fires when loading is done AND panel 1 enters the viewport.
-  // This is the cleanest possible trigger: supabase data received,
-  // loading UI is gone, user literally sees the first panel.
+  // ── When loading finishes → switch to top-banner ──────────────────────────
   useEffect(() => {
-    if (isFetchingChapterInfo || isDetecting) return;
-    if (topBannerFiredRef.current) return;
-    if (!firstPanelRef.current) return;
+    if (!isFetchingChapterInfo && !isDetecting && displayedPanels.length > 0) {
+      if (activeAdSlot === "loading") {
+        switchAdSlot("top-banner");
+        topBannerDismissedRef.current = false;
+      }
+    }
+  }, [isFetchingChapterInfo, isDetecting, displayedPanels.length]);
+
+  // ── Top banner scroll-away detection ─────────────────────────────────────
+  // When the top banner scrolls out of view, unmount it (slot → "none").
+  // End-of-chapter will take over when the user reaches the bottom.
+  useEffect(() => {
+    if (activeAdSlot !== "top-banner") return;
+    if (!topBannerRef.current) return;
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting && !topBannerFiredRef.current) {
-          topBannerFiredRef.current = true;
-          observer.disconnect();
-          switchToSlot("top-banner");
+        if (!entry.isIntersecting && !topBannerDismissedRef.current) {
+          topBannerDismissedRef.current = true;
+          setActiveAdSlot("none"); // cleanly remove from DOM
+          setAdKey((k) => k + 1);
         }
       },
-      { threshold: 0.1 }
+      { threshold: 0, rootMargin: "0px" }
     );
 
-    observer.observe(firstPanelRef.current);
+    observer.observe(topBannerRef.current);
     return () => observer.disconnect();
-  }, [isFetchingChapterInfo, isDetecting, firstPanelRef.current, switchToSlot]);
-
-  // ── Shared props for the native banner ───────────────────────────────────
-  const sharedAdProps = {
-    scriptSrc:     AD_ZONE.scriptSrc,
-    containerId:   AD_ZONE.containerId,
-    showLabel:     true,
-    labelPosition: "top" as const,
-    fullWidth:     true,
-    centered:      true,
-  };
+  }, [activeAdSlot, topBannerRef.current]);
 
   // ── URL helpers ────────────────────────────────────────────────────────────
   const getOptimizedPanelUrl = (panelNumber: number) => {
@@ -260,9 +197,7 @@ export function MangaReader({
           }
         });
         if (mostVisibleEntry) {
-          const panelNumber = Number(
-            mostVisibleEntry.target.getAttribute("data-panel")
-          );
+          const panelNumber = Number(mostVisibleEntry.target.getAttribute("data-panel"));
           if (panelNumber && panelNumber !== currentVisiblePanel) {
             setCurrentVisiblePanel(panelNumber);
           }
@@ -328,9 +263,7 @@ export function MangaReader({
         setTimeout(() => setBookmarkSaved(false), 3000);
       }
     }, 20000);
-    return () => {
-      if (bookmarkTimerRef.current) clearTimeout(bookmarkTimerRef.current);
-    };
+    return () => { if (bookmarkTimerRef.current) clearTimeout(bookmarkTimerRef.current); };
   }, [user, chapter, mangaId, addBookmark, isLockedChapter, currentVisiblePanel]);
 
   // ── Periodic bookmark progress update ────────────────────────────────────
@@ -339,9 +272,7 @@ export function MangaReader({
     panelUpdateTimerRef.current = setInterval(() => {
       addBookmark(mangaId, chapter, currentVisiblePanel);
     }, 10000);
-    return () => {
-      if (panelUpdateTimerRef.current) clearInterval(panelUpdateTimerRef.current);
-    };
+    return () => { if (panelUpdateTimerRef.current) clearInterval(panelUpdateTimerRef.current); };
   }, [user, chapter, mangaId, currentVisiblePanel, addBookmark, isLockedChapter]);
 
   // ── Scroll to target panel once loaded ────────────────────────────────────
@@ -352,20 +283,17 @@ export function MangaReader({
 
     const targetPanelElement = panelRefs.current[shouldScrollToPanel];
     if (!targetPanelElement) {
-      const retryTimeout = setTimeout(() => {
-        const retryElement = panelRefs.current[shouldScrollToPanel];
-        if (retryElement) {
-          retryElement.scrollIntoView({ behavior: "smooth", block: "center" });
-          setShouldScrollToPanel(null);
-        }
+      const t = setTimeout(() => {
+        const el = panelRefs.current[shouldScrollToPanel];
+        if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); setShouldScrollToPanel(null); }
       }, 1500);
-      return () => clearTimeout(retryTimeout);
+      return () => clearTimeout(t);
     }
-    const scrollTimeout = setTimeout(() => {
+    const t = setTimeout(() => {
       targetPanelElement.scrollIntoView({ behavior: "smooth", block: "center" });
       setShouldScrollToPanel(null);
     }, 1000);
-    return () => clearTimeout(scrollTimeout);
+    return () => clearTimeout(t);
   }, [shouldScrollToPanel, displayedPanels, isFetchingChapterInfo, isDetecting]);
 
   // ── Fetch chapter info ─────────────────────────────────────────────────────
@@ -378,18 +306,15 @@ export function MangaReader({
     setDetectionError(null);
 
     try {
-      const response = await fetch(
-        `/api/manga/chapter-info?manga=${mangaId}&chapter=${chapter}`
-      );
+      const response = await fetch(`/api/manga/chapter-info?manga=${mangaId}&chapter=${chapter}`);
       const data = await response.json();
 
       if (!response.ok) {
         if (response.status === 404) {
-          const fallbackPanelCount = 100;
-          setDetectedTotalPanels(fallbackPanelCount);
-          const targetPanel = shouldScrollToPanel || 10;
-          const panelsToLoad = Math.min(Math.max(15, targetPanel + 10), fallbackPanelCount);
-          setDisplayedPanels(Array.from({ length: panelsToLoad }, (_, i) => i + 1));
+          const fallback = 100;
+          setDetectedTotalPanels(fallback);
+          const tp = shouldScrollToPanel || 10;
+          setDisplayedPanels(Array.from({ length: Math.min(Math.max(15, tp + 10), fallback) }, (_, i) => i + 1));
           setFetchError(`Chapter ${chapter} metadata not found. Attempting to load panels...`);
           setDetectionError(`Chapter ${chapter} metadata not found. Attempting to load panels...`);
         } else {
@@ -398,26 +323,23 @@ export function MangaReader({
       } else {
         if (data.totalPanels && data.totalPanels > 0) {
           setDetectedTotalPanels(data.totalPanels);
-          const targetPanel = shouldScrollToPanel || 10;
-          const panelsToLoad = Math.min(Math.max(15, targetPanel + 10), data.totalPanels);
-          setDisplayedPanels(Array.from({ length: panelsToLoad }, (_, i) => i + 1));
+          const tp = shouldScrollToPanel || 10;
+          setDisplayedPanels(Array.from({ length: Math.min(Math.max(15, tp + 10), data.totalPanels) }, (_, i) => i + 1));
           setFetchError(null);
           setDetectionError(null);
         } else {
-          const errorMsg = "No panels found for this chapter.";
-          setFetchError(errorMsg);
-          setDetectionError(errorMsg);
+          const msg = "No panels found for this chapter.";
+          setFetchError(msg);
+          setDetectionError(msg);
         }
       }
-    } catch (error) {
-      console.error("Error fetching chapter info:", error);
-      const fallbackPanelCount = 100;
-      setDetectedTotalPanels(fallbackPanelCount);
-      const targetPanel = shouldScrollToPanel || 10;
-      const panelsToLoad = Math.min(Math.max(15, targetPanel + 10), fallbackPanelCount);
-      setDisplayedPanels(Array.from({ length: panelsToLoad }, (_, i) => i + 1));
-      setFetchError(`Unable to load chapter metadata. Attempting to load panels...`);
-      setDetectionError(`Unable to load chapter metadata. Attempting to load panels...`);
+    } catch {
+      const fallback = 100;
+      setDetectedTotalPanels(fallback);
+      const tp = shouldScrollToPanel || 10;
+      setDisplayedPanels(Array.from({ length: Math.min(Math.max(15, tp + 10), fallback) }, (_, i) => i + 1));
+      setFetchError("Unable to load chapter metadata. Attempting to load panels...");
+      setDetectionError("Unable to load chapter metadata. Attempting to load panels...");
     } finally {
       setIsFetchingChapterInfo(false);
       setIsDetecting(false);
@@ -428,9 +350,8 @@ export function MangaReader({
     if (!providedTotalPanels && !isLockedChapter && mangaSlug) {
       fetchChapterInfo();
     } else if (providedTotalPanels) {
-      const targetPanel = shouldScrollToPanel || 15;
-      const panelsToLoad = Math.min(Math.max(15, targetPanel + 10), providedTotalPanels);
-      setDisplayedPanels(Array.from({ length: panelsToLoad }, (_, i) => i + 1));
+      const tp = shouldScrollToPanel || 15;
+      setDisplayedPanels(Array.from({ length: Math.min(Math.max(15, tp + 10), providedTotalPanels) }, (_, i) => i + 1));
     }
   }, [fetchChapterInfo, providedTotalPanels, isLockedChapter, shouldScrollToPanel, mangaSlug]);
 
@@ -442,17 +363,17 @@ export function MangaReader({
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
+  const totalPanelsToUse = detectedTotalPanels || providedTotalPanels || 0;
+
   // ── Infinite scroll ────────────────────────────────────────────────────────
   const loadMorePanels = useCallback(() => {
     if (isLoading || displayedPanels.length >= totalPanelsToUse || isLockedChapter) return;
     setIsLoading(true);
     setTimeout(() => {
-      const currentLength = displayedPanels.length;
-      const nextPanels: number[] = [];
-      for (let i = 1; i <= 5 && currentLength + i <= totalPanelsToUse; i++) {
-        nextPanels.push(currentLength + i);
-      }
-      if (nextPanels.length > 0) setDisplayedPanels((prev) => [...prev, ...nextPanels]);
+      const cur = displayedPanels.length;
+      const next: number[] = [];
+      for (let i = 1; i <= 5 && cur + i <= totalPanelsToUse; i++) next.push(cur + i);
+      if (next.length > 0) setDisplayedPanels((prev) => [...prev, ...next]);
       setIsLoading(false);
     }, 200);
   }, [displayedPanels.length, totalPanelsToUse, isLoading, isLockedChapter]);
@@ -460,41 +381,34 @@ export function MangaReader({
   useEffect(() => {
     if (isLockedChapter || isFetchingChapterInfo || isDetecting) return;
     const handleScroll = () => {
-      const container = scrollContainerRef.current;
-      if (!container) return;
-      const scrolledToBottom =
-        container.scrollHeight - container.scrollTop - container.clientHeight < 1500;
-      if (scrolledToBottom && !isLoading && displayedPanels.length < totalPanelsToUse) {
+      const c = scrollContainerRef.current;
+      if (!c) return;
+      if (c.scrollHeight - c.scrollTop - c.clientHeight < 1500 && !isLoading && displayedPanels.length < totalPanelsToUse) {
         loadMorePanels();
       }
     };
-    const container = scrollContainerRef.current;
-    if (container) {
-      container.addEventListener("scroll", handleScroll);
-      handleScroll();
-    }
-    return () => container?.removeEventListener("scroll", handleScroll);
+    const c = scrollContainerRef.current;
+    if (c) { c.addEventListener("scroll", handleScroll); handleScroll(); }
+    return () => c?.removeEventListener("scroll", handleScroll);
   }, [loadMorePanels, isLoading, displayedPanels.length, totalPanelsToUse, isLockedChapter, isFetchingChapterInfo, isDetecting]);
 
   // ── Keyboard scroll ────────────────────────────────────────────────────────
   const smoothScroll = (direction: "up" | "down") => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-    const scrollAmount = (scrollSpeed / 50) * 800;
-    const targetScroll =
-      direction === "down"
-        ? container.scrollTop + scrollAmount
-        : container.scrollTop - scrollAmount;
-    container.scrollTo({ top: targetScroll, behavior: "smooth" });
+    const c = scrollContainerRef.current;
+    if (!c) return;
+    c.scrollTo({
+      top: direction === "down" ? c.scrollTop + (scrollSpeed / 50) * 800 : c.scrollTop - (scrollSpeed / 50) * 800,
+      behavior: "smooth",
+    });
   };
 
   useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
+    const handler = (e: KeyboardEvent) => {
       if (e.key === "ArrowDown" || e.key === " ") { e.preventDefault(); smoothScroll("down"); }
       else if (e.key === "ArrowUp") { e.preventDefault(); smoothScroll("up"); }
     };
-    window.addEventListener("keydown", handleKeyPress);
-    return () => window.removeEventListener("keydown", handleKeyPress);
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
   }, [scrollSpeed]);
 
   // ── Fullscreen ─────────────────────────────────────────────────────────────
@@ -510,22 +424,20 @@ export function MangaReader({
 
   useEffect(() => {
     if (!isFullscreen) return;
-    const handleMouseMove = () => {
+    const move = () => {
       setShowControls(true);
       if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
       controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 3000);
     };
-    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mousemove", move);
     controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 3000);
     return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mousemove", move);
       if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     };
   }, [isFullscreen]);
 
-  useEffect(() => {
-    if (!isFullscreen) setShowControls(true);
-  }, [isFullscreen]);
+  useEffect(() => { if (!isFullscreen) setShowControls(true); }, [isFullscreen]);
 
   // ── Chapter navigation ─────────────────────────────────────────────────────
   const handlePreviousChapter = () => {
@@ -568,11 +480,24 @@ export function MangaReader({
     </div>
   );
 
+  // ── Shared ad props ────────────────────────────────────────────────────────
+  // All three placements use identical zone config — only one is ever
+  // mounted at a time, so the container ID is never duplicated in the DOM.
+  const sharedAdProps = {
+    scriptSrc:   AD_ZONE.scriptSrc,
+    containerId: AD_ZONE.containerId,
+    showLabel:   true,
+    labelPosition: "top" as const,
+    fullWidth:   true,
+    centered:    true,
+  };
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex flex-col overflow-hidden">
       {!isFullscreen && <Header />}
 
+      {/* Bookmark saved toast */}
       {bookmarkSaved && (
         <div className="fixed top-20 right-4 z-[100] animate-in slide-in-from-right duration-300">
           <div className="bg-gradient-to-r from-cyan-500/90 to-cyan-600/90 backdrop-blur-xl border border-cyan-400/30 rounded-lg px-4 py-3 shadow-lg shadow-cyan-500/20 flex items-center gap-3">
@@ -589,130 +514,80 @@ export function MangaReader({
 
       <div className="flex flex-1 relative overflow-hidden">
 
+        {/* Mobile sidebar backdrop */}
         {sidebarOpen && !isFullscreen && (
-          <div
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
-            onClick={() => setSidebarOpen(false)}
-          />
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
         )}
 
+        {/* Sidebar */}
         {sidebarOpen && !isFullscreen && (
           <aside className="fixed lg:relative left-0 top-0 bottom-0 w-72 border-r border-cyan-500/20 bg-gradient-to-r from-slate-900/95 to-slate-900/90 backdrop-blur-xl z-50 lg:z-30 flex-shrink-0 overflow-auto transition-transform duration-300">
             <div className="space-y-2">
               <div className="lg:hidden flex justify-end p-4 border-b border-cyan-500/20">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSidebarOpen(false)}
-                  className="text-slate-400 hover:text-slate-200"
-                >
+                <Button variant="ghost" size="sm" onClick={() => setSidebarOpen(false)} className="text-slate-400 hover:text-slate-200">
                   <X className="w-5 h-5" />
                 </Button>
               </div>
               <div className="text-slate-400 text-sm">
-                <ChaptersSidebar
-                  mangaId={mangaId}
-                  currentChapter={chapter}
-                  chapters={totalChapters}
-                />
+                <ChaptersSidebar mangaId={mangaId} currentChapter={chapter} chapters={totalChapters} />
               </div>
             </div>
           </aside>
         )}
 
+        {/* Main content */}
         <div
           className="flex-1 flex flex-col bg-gradient-to-b from-slate-900/50 to-slate-950 overflow-hidden relative"
-          style={{
-            filter: `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%)`,
-          }}
+          style={{ filter: `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%)` }}
         >
           {!showControls && !isFullscreen && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowControls(true)}
-              className="absolute top-4 right-4 z-50 bg-slate-900/80 hover:bg-slate-800/80 text-slate-200 hover:text-cyan-400"
-            >
+            <Button variant="ghost" size="sm" onClick={() => setShowControls(true)}
+              className="absolute top-4 right-4 z-50 bg-slate-900/80 hover:bg-slate-800/80 text-slate-200 hover:text-cyan-400">
               <Menu className="w-4 h-4" />
             </Button>
           )}
 
+          {/* Top controls bar */}
           {showControls && !isFullscreen && (
             <div className="bg-gradient-to-r from-slate-900/80 to-slate-900/60 backdrop-blur-xl border-t border-cyan-500/20 p-4 flex-shrink-0 transition-all duration-300 relative z-40">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setSidebarOpen(!sidebarOpen)}
-                    className="bg-slate-800/50 border-cyan-500/30 text-slate-200 hover:bg-slate-800/70 hover:border-cyan-400/50 hover:text-cyan-400"
-                  >
+                  <Button variant="outline" size="sm" onClick={() => setSidebarOpen(!sidebarOpen)}
+                    className="bg-slate-800/50 border-cyan-500/30 text-slate-200 hover:bg-slate-800/70 hover:border-cyan-400/50 hover:text-cyan-400">
                     <Menu className="w-4 h-4" />
                   </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handlePreviousChapter}
-                    disabled={previousChapter === null}
-                    className="bg-slate-800/50 border-cyan-500/30 text-slate-200 hover:bg-slate-800/70 hover:border-cyan-400/50 disabled:opacity-50 hover:text-cyan-400 px-2"
-                  >
+                  <Button variant="outline" size="sm" onClick={handlePreviousChapter} disabled={previousChapter === null}
+                    className="bg-slate-800/50 border-cyan-500/30 text-slate-200 hover:bg-slate-800/70 hover:border-cyan-400/50 disabled:opacity-50 hover:text-cyan-400 px-2">
                     <ChevronLeft className="w-4 h-4" />
                   </Button>
                   <Card className="px-3 py-2 text-center bg-gradient-to-r from-slate-800/50 to-slate-800/30 border-cyan-500/20 text-slate-200">
                     <p className="text-xs font-medium">Ch {chapter}</p>
                   </Card>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleNextChapter}
-                    disabled={
-                      nextChapter === null ||
-                      (nextChapter !== null && nextChapter > totalChapters)
-                    }
-                    className="bg-slate-800/50 border-cyan-500/30 text-slate-200 hover:bg-slate-800/70 hover:border-cyan-400/50 disabled:opacity-50 hover:text-cyan-400 px-2"
-                  >
+                  <Button variant="outline" size="sm" onClick={handleNextChapter}
+                    disabled={nextChapter === null || (nextChapter !== null && nextChapter > totalChapters)}
+                    className="bg-slate-800/50 border-cyan-500/30 text-slate-200 hover:bg-slate-800/70 hover:border-cyan-400/50 disabled:opacity-50 hover:text-cyan-400 px-2">
                     <ChevronRight className="w-4 h-4" />
                   </Button>
                 </div>
 
                 <div className="hidden sm:flex flex-1 justify-center px-4 min-w-0">
-                  <p className="text-sm font-semibold text-slate-200 truncate max-w-xs tracking-wide">
-                    {mangaTitle}
-                  </p>
+                  <p className="text-sm font-semibold text-slate-200 truncate max-w-xs tracking-wide">{mangaTitle}</p>
                 </div>
 
                 <div className="flex items-center gap-1">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleFullscreenToggle}
-                    className="bg-slate-800/50 border-cyan-500/30 text-slate-200 hover:bg-slate-800/70 hover:border-cyan-400/50 disabled:opacity-50 hover:text-cyan-400 px-2"
-                  >
+                  <Button variant="outline" size="sm" onClick={handleFullscreenToggle}
+                    className="bg-slate-800/50 border-cyan-500/30 text-slate-200 hover:bg-slate-800/70 hover:border-cyan-400/50 hover:text-cyan-400 px-2">
                     <Maximize2 className="w-4 h-4" />
                   </Button>
                   <div className="relative">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowAdvancedControls(!showAdvancedControls)}
-                      className="bg-slate-800/50 border-cyan-500/30 text-slate-200 hover:bg-slate-800/70 hover:border-cyan-400/50 disabled:opacity-50 hover:text-cyan-400 px-2"
-                    >
-                      <Settings
-                        className={`w-4 h-4 transition-transform duration-300 ${
-                          showAdvancedControls ? "rotate-90" : ""
-                        }`}
-                      />
+                    <Button variant="outline" size="sm" onClick={() => setShowAdvancedControls(!showAdvancedControls)}
+                      className="bg-slate-800/50 border-cyan-500/30 text-slate-200 hover:bg-slate-800/70 hover:border-cyan-400/50 hover:text-cyan-400 px-2">
+                      <Settings className={`w-4 h-4 transition-transform duration-300 ${showAdvancedControls ? "rotate-90" : ""}`} />
                     </Button>
-                    {hasChangedSettings && (
-                      <span className="absolute -top-1 -right-1 w-2 h-2 bg-pink-500 rounded-full animate-pulse" />
-                    )}
+                    {hasChangedSettings && <span className="absolute -top-1 -right-1 w-2 h-2 bg-pink-500 rounded-full animate-pulse" />}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setShowControls(false)}
-                    className="bg-slate-800/50 border-cyan-500/30 text-slate-200 hover:bg-slate-800/70 hover:border-cyan-400/50 disabled:opacity-50 hover:text-cyan-400 px-2 lg:hidden"
-                  >
+                  <Button variant="ghost" size="sm" onClick={() => setShowControls(false)}
+                    className="bg-slate-800/50 border-cyan-500/30 text-slate-200 hover:bg-slate-800/70 hover:border-cyan-400/50 hover:text-cyan-400 px-2 lg:hidden">
                     <X className="w-4 h-4" />
                   </Button>
                 </div>
@@ -720,37 +595,25 @@ export function MangaReader({
             </div>
           )}
 
+          {/* Advanced controls — non-fullscreen */}
           {showAdvancedControls && !isFullscreen && (
             <>
-              <div
-                className="absolute inset-0 bg-black/60 backdrop-blur-sm z-[45] animate-in fade-in duration-300"
-                onClick={() => setShowAdvancedControls(false)}
-              />
+              <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-[45] animate-in fade-in duration-300" onClick={() => setShowAdvancedControls(false)} />
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[50] w-[90vw] max-w-4xl animate-in zoom-in-95 duration-300">
                 <div className="bg-gradient-to-br from-slate-800/95 to-slate-900/95 backdrop-blur-xl rounded-lg p-4 md:p-6 border border-pink-500/30 shadow-2xl shadow-pink-500/20 max-h-[80vh] overflow-y-auto">
                   <div className="flex items-center justify-between mb-4 md:mb-6">
                     <h3 className="text-base md:text-lg font-semibold text-transparent bg-gradient-to-r from-pink-400 to-purple-400 bg-clip-text flex items-center gap-2">
-                      <Settings className="w-4 h-4 md:w-5 md:h-5 text-pink-400" />
-                      Advanced Controls
+                      <Settings className="w-4 h-4 md:w-5 md:h-5 text-pink-400" /> Advanced Controls
                     </h3>
                     <div className="flex items-center gap-2">
                       {hasChangedSettings && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={resetAdvancedControls}
-                          className="h-7 md:h-8 px-2 md:px-3 text-xs md:text-sm text-pink-400 hover:text-pink-300 hover:bg-pink-500/10"
-                        >
-                          <RotateCcw className="w-3 h-3 md:w-4 md:h-4 mr-1" />
-                          Reset
+                        <Button variant="ghost" size="sm" onClick={resetAdvancedControls}
+                          className="h-7 md:h-8 px-2 md:px-3 text-xs md:text-sm text-pink-400 hover:text-pink-300 hover:bg-pink-500/10">
+                          <RotateCcw className="w-3 h-3 md:w-4 md:h-4 mr-1" /> Reset
                         </Button>
                       )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setShowAdvancedControls(false)}
-                        className="h-7 md:h-8 px-2 text-slate-400 hover:text-slate-200"
-                      >
+                      <Button variant="ghost" size="sm" onClick={() => setShowAdvancedControls(false)}
+                        className="h-7 md:h-8 px-2 text-slate-400 hover:text-slate-200">
                         <X className="w-4 h-4 md:w-5 md:h-5" />
                       </Button>
                     </div>
@@ -768,14 +631,9 @@ export function MangaReader({
                           <label className="text-xs md:text-sm font-medium text-slate-300">{label}</label>
                           <span className="text-xs md:text-sm text-pink-400 font-mono">{value}%</span>
                         </div>
-                        <input
-                          type="range"
-                          min={min}
-                          max={max}
-                          value={value}
+                        <input type="range" min={min} max={max} value={value}
                           onChange={(e) => setter(Number(e.target.value))}
-                          className="w-full h-2 bg-slate-700/50 rounded-lg appearance-none cursor-pointer accent-pink-500"
-                        />
+                          className="w-full h-2 bg-slate-700/50 rounded-lg appearance-none cursor-pointer accent-pink-500" />
                       </div>
                     ))}
                   </div>
@@ -784,42 +642,25 @@ export function MangaReader({
             </>
           )}
 
+          {/* Fullscreen top bar */}
           {isFullscreen && (
-            <div
-              className={`absolute top-0 left-0 right-0 z-50 transition-all duration-300 ${
-                showControls ? "translate-y-0 opacity-100" : "-translate-y-full opacity-0"
-              }`}
-            >
+            <div className={`absolute top-0 left-0 right-0 z-50 transition-all duration-300 ${showControls ? "translate-y-0 opacity-100" : "-translate-y-full opacity-0"}`}>
               <div className="bg-gradient-to-r from-slate-900/95 to-slate-900/80 backdrop-blur-xl border-b border-cyan-500/20 p-4">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handlePreviousChapter}
-                      disabled={previousChapter === null}
-                      className="bg-slate-800/50 border-cyan-500/30 text-slate-200 hover:bg-slate-800/70 hover:border-cyan-400/50 disabled:opacity-50 hover:text-cyan-400 px-2"
-                    >
+                    <Button variant="outline" size="sm" onClick={handlePreviousChapter} disabled={previousChapter === null}
+                      className="bg-slate-800/50 border-cyan-500/30 text-slate-200 hover:bg-slate-800/70 hover:border-cyan-400/50 disabled:opacity-50 hover:text-cyan-400 px-2">
                       <ChevronLeft className="w-4 h-4" />
                     </Button>
                     <Card className="px-3 py-2 text-center bg-gradient-to-r from-slate-800/50 to-slate-800/30 border-cyan-500/20 text-slate-200">
                       <p className="text-xs font-medium">
                         Ch {chapter}
-                        {totalPanelsToUse > 0 && (
-                          <span className="text-cyan-400 ml-1">({totalPanelsToUse})</span>
-                        )}
+                        {totalPanelsToUse > 0 && <span className="text-cyan-400 ml-1">({totalPanelsToUse})</span>}
                       </p>
                     </Card>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleNextChapter}
-                      disabled={
-                        nextChapter === null ||
-                        (nextChapter !== null && nextChapter > totalChapters)
-                      }
-                      className="bg-slate-800/50 border-cyan-500/30 text-cyan-200 hover:bg-slate-800/70 hover:border-cyan-400/50 disabled:opacity-50 hover:text-cyan-400 px-2"
-                    >
+                    <Button variant="outline" size="sm" onClick={handleNextChapter}
+                      disabled={nextChapter === null || (nextChapter !== null && nextChapter > totalChapters)}
+                      className="bg-slate-800/50 border-cyan-500/30 text-cyan-200 hover:bg-slate-800/70 hover:border-cyan-400/50 disabled:opacity-50 hover:text-cyan-400 px-2">
                       <ChevronRight className="w-4 h-4" />
                     </Button>
                   </div>
@@ -829,30 +670,16 @@ export function MangaReader({
                     <Link href="/trending" className="text-white/70 hover:text-pink-500 transition font-semibold">Trending</Link>
                   </nav>
                   <div className="flex items-center gap-1">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleFullscreenToggle}
-                      className="bg-slate-800/50 border-cyan-500/30 text-slate-200 hover:bg-slate-800/70 hover:border-cyan-400/50 disabled:opacity-50 hover:text-cyan-400 px-2"
-                    >
+                    <Button variant="outline" size="sm" onClick={handleFullscreenToggle}
+                      className="bg-slate-800/50 border-cyan-500/30 text-slate-200 hover:bg-slate-800/70 hover:border-cyan-400/50 hover:text-cyan-400 px-2">
                       <Minimize2 className="w-4 h-4" />
                     </Button>
                     <div className="relative">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowAdvancedControls(!showAdvancedControls)}
-                        className="bg-slate-800/50 border-cyan-500/30 text-slate-200 hover:bg-slate-800/70 hover:border-cyan-400/50 disabled:opacity-50 hover:text-cyan-400 px-2"
-                      >
-                        <Settings
-                          className={`w-4 h-4 transition-transform duration-300 ${
-                            showAdvancedControls ? "rotate-90" : ""
-                          }`}
-                        />
+                      <Button variant="outline" size="sm" onClick={() => setShowAdvancedControls(!showAdvancedControls)}
+                        className="bg-slate-800/50 border-cyan-500/30 text-slate-200 hover:bg-slate-800/70 hover:border-cyan-400/50 hover:text-cyan-400 px-2">
+                        <Settings className={`w-4 h-4 transition-transform duration-300 ${showAdvancedControls ? "rotate-90" : ""}`} />
                       </Button>
-                      {hasChangedSettings && (
-                        <span className="absolute -top-1 -right-1 w-2 h-2 bg-pink-500 rounded-full animate-pulse" />
-                      )}
+                      {hasChangedSettings && <span className="absolute -top-1 -right-1 w-2 h-2 bg-pink-500 rounded-full animate-pulse" />}
                     </div>
                   </div>
                 </div>
@@ -860,37 +687,25 @@ export function MangaReader({
             </div>
           )}
 
+          {/* Advanced controls — fullscreen */}
           {showAdvancedControls && isFullscreen && (
             <>
-              <div
-                className="absolute inset-0 bg-black/60 backdrop-blur-sm z-[55] animate-in fade-in duration-300"
-                onClick={() => setShowAdvancedControls(false)}
-              />
+              <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-[55] animate-in fade-in duration-300" onClick={() => setShowAdvancedControls(false)} />
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[60] w-[90vw] max-w-5xl animate-in zoom-in-95 duration-300">
                 <div className="bg-gradient-to-br from-slate-800/95 to-slate-900/95 backdrop-blur-xl rounded-lg p-4 md:p-6 border border-pink-500/30 shadow-2xl shadow-pink-500/20 max-h-[80vh] overflow-y-auto">
                   <div className="flex items-center justify-between mb-4 md:mb-6">
                     <h3 className="text-base md:text-lg font-semibold text-transparent bg-gradient-to-r from-pink-400 to-purple-400 bg-clip-text flex items-center gap-2">
-                      <Settings className="w-4 h-4 md:w-5 md:h-5 text-pink-400" />
-                      Advanced Controls
+                      <Settings className="w-4 h-4 md:w-5 md:h-5 text-pink-400" /> Advanced Controls
                     </h3>
                     <div className="flex items-center gap-2">
                       {hasChangedSettings && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={resetAdvancedControls}
-                          className="h-7 md:h-8 px-2 md:px-3 text-xs md:text-sm text-pink-400 hover:text-pink-300 hover:bg-pink-500/10"
-                        >
-                          <RotateCcw className="w-3 h-3 md:w-4 md:h-4 mr-1" />
-                          Reset
+                        <Button variant="ghost" size="sm" onClick={resetAdvancedControls}
+                          className="h-7 md:h-8 px-2 md:px-3 text-xs md:text-sm text-pink-400 hover:text-pink-300 hover:bg-pink-500/10">
+                          <RotateCcw className="w-3 h-3 md:w-4 md:h-4 mr-1" /> Reset
                         </Button>
                       )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setShowAdvancedControls(false)}
-                        className="h-7 md:h-8 px-2 text-slate-400 hover:text-slate-200"
-                      >
+                      <Button variant="ghost" size="sm" onClick={() => setShowAdvancedControls(false)}
+                        className="h-7 md:h-8 px-2 text-slate-400 hover:text-slate-200">
                         <X className="w-4 h-4 md:w-5 md:h-5" />
                       </Button>
                     </div>
@@ -908,14 +723,9 @@ export function MangaReader({
                           <label className="text-xs md:text-sm font-medium text-slate-300">{label}</label>
                           <span className="text-xs md:text-sm text-pink-400 font-mono">{value}%</span>
                         </div>
-                        <input
-                          type="range"
-                          min={min}
-                          max={max}
-                          value={value}
+                        <input type="range" min={min} max={max} value={value}
                           onChange={(e) => setter(Number(e.target.value))}
-                          className="w-full h-2 bg-slate-700/50 rounded-lg appearance-none cursor-pointer accent-pink-500"
-                        />
+                          className="w-full h-2 bg-slate-700/50 rounded-lg appearance-none cursor-pointer accent-pink-500" />
                       </div>
                     ))}
                   </div>
@@ -928,11 +738,7 @@ export function MangaReader({
           <div
             ref={scrollContainerRef}
             className="flex-1 overflow-y-auto flex flex-col items-center gap-4 p-4 scroll-smooth"
-            style={{
-              scrollbarWidth: "thin",
-              scrollbarColor: "rgba(6, 182, 212, 0.3) transparent",
-              scrollBehavior: "smooth",
-            }}
+            style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(6, 182, 212, 0.3) transparent", scrollBehavior: "smooth" }}
           >
             <style jsx>{`
               div::-webkit-scrollbar { width: 8px; }
@@ -950,12 +756,11 @@ export function MangaReader({
               .panels-fadein { animation: fadeInUp 0.35s ease-out both; }
             `}</style>
 
-            {/* ── SLOT 1: Loading screen ─────────────────────────────────────
-                Native banner shown while supabase fetch is in progress.
-                Unmounts the moment loading finishes and panels appear.
-            ──────────────────────────────────────────────────────────────── */}
+            {/* ── SLOT 1: Loading screen ── */}
             {(isFetchingChapterInfo || isDetecting) && (
               <div className="w-full max-w-2xl flex flex-col items-center justify-center min-h-[70vh] gap-8 px-4 py-8">
+
+                {/* Ad — only rendered when slot is "loading" */}
                 {activeAdSlot === "loading" && (
                   <div className="w-full">
                     <AdsterraAd
@@ -967,6 +772,8 @@ export function MangaReader({
                     />
                   </div>
                 )}
+
+                {/* Spinner + shimmer bar */}
                 <div className="w-full flex flex-col items-center gap-4">
                   <div className="relative flex items-center justify-center">
                     <div className="w-14 h-14 rounded-full border-2 border-slate-700/60" />
@@ -984,9 +791,7 @@ export function MangaReader({
                         style={{ animation: "loadingSlide 1.4s ease-in-out infinite" }}
                       />
                     </div>
-                    <p className="text-xs text-slate-600 text-center mt-1">
-                      Fetching panel data from database
-                    </p>
+                    <p className="text-xs text-slate-600 text-center mt-1">Fetching panel data from database</p>
                   </div>
                 </div>
               </div>
@@ -999,9 +804,7 @@ export function MangaReader({
                 <div className="text-center space-y-2">
                   <h2 className="text-lg font-bold text-slate-200">Error Loading Chapter</h2>
                   <p className="text-slate-400">{fetchError || detectionError}</p>
-                  <Button onClick={fetchChapterInfo} className="mt-4 bg-cyan-600 hover:bg-cyan-700 text-white">
-                    Retry
-                  </Button>
+                  <Button onClick={fetchChapterInfo} className="mt-4 bg-cyan-600 hover:bg-cyan-700 text-white">Retry</Button>
                 </div>
               </div>
             )}
@@ -1018,28 +821,23 @@ export function MangaReader({
                   <p className="text-slate-400">This chapter hasn't been released yet. Check back later!</p>
                   <p className="text-sm text-slate-500">Latest available chapter: {totalChapters}</p>
                 </div>
-                <Button
-                  onClick={() => (window.location.href = `/manga/${mangaId}/chapter/${totalChapters}`)}
-                  className="mt-4 bg-cyan-600 hover:bg-cyan-700 text-white"
-                >
+                <Button onClick={() => (window.location.href = `/manga/${mangaId}/chapter/${totalChapters}`)}
+                  className="mt-4 bg-cyan-600 hover:bg-cyan-700 text-white">
                   Go to Latest Chapter
                 </Button>
               </div>
             ) : (
-              !isFetchingChapterInfo &&
-              !isDetecting &&
-              displayedPanels.length > 0 && (
+              !isFetchingChapterInfo && !isDetecting && displayedPanels.length > 0 && (
                 <div
                   className="w-full space-y-0 transition-all duration-300 panels-fadein"
                   style={{ maxWidth: `${(panelWidth / 100) * 64}rem` }}
                 >
-                  {/* ── SLOT 2: Top-of-chapter native banner ──────────────────
-                      Fires when panel 1 enters the viewport via
-                      IntersectionObserver (set up in useEffect above).
-                      Scrolls away naturally — no dismiss needed.
-                  ──────────────────────────────────────────────────────────── */}
+                  {/* ── SLOT 2: Top-of-chapter banner ──────────────────────────
+                      Observed by IntersectionObserver — unmounts itself when
+                      scrolled out of view, freeing the zone for end-of-chapter.
+                  ─────────────────────────────────────────────────────────── */}
                   {activeAdSlot === "top-banner" && (
-                    <div className="mb-2">
+                    <div ref={topBannerRef} className="mb-2">
                       <AdsterraAd
                         key={adKey}
                         {...sharedAdProps}
@@ -1054,11 +852,7 @@ export function MangaReader({
                   {displayedPanels.map((panelNumber) => (
                     <div
                       key={panelNumber}
-                      ref={(el) => {
-                        panelRefs.current[panelNumber] = el;
-                        // Panel 1 ref drives the top-banner viewport trigger
-                        if (panelNumber === 1) firstPanelRef.current = el;
-                      }}
+                      ref={(el) => { panelRefs.current[panelNumber] = el; }}
                       data-panel={panelNumber}
                       className="relative group overflow-hidden shadow-2xl border border-cyan-500/20 hover:border-cyan-400 transition-all hover:shadow-lg hover:shadow-cyan-500/20"
                     >
@@ -1092,23 +886,41 @@ export function MangaReader({
                     </div>
                   )}
 
-                  {/* ── End of chapter ─────────────────────────────────────────
-                      BOTTOM BANNER — completely separate network (highperformanceformat).
-                      Uses its own script + iframe so zero conflict with the
-                      Adsterra native banner above.
-                      key=chapter forces full remount on chapter navigation.
-                  ──────────────────────────────────────────────────────────── */}
-                  {allPanelsLoaded && (
+                  {/* ── SLOT 3: End-of-chapter ──────────────────────────────────
+                      Mounts when all panels are loaded. switchAdSlot ensures
+                      the top-banner container is fully removed first.
+                  ─────────────────────────────────────────────────────────── */}
+                  {displayedPanels.length >= totalPanelsToUse && totalPanelsToUse > 0 && (
                     <div className="text-center py-8 space-y-4">
                       <p className="text-slate-400 text-sm">End of chapter</p>
 
-                      <BottomBannerAd key={chapter} chapterKey={chapter} />
+                      {/* Switch to end-of-chapter slot if not already there */}
+                      {activeAdSlot !== "end-of-chapter" && activeAdSlot !== "none" && (
+                        // Fire the slot switch as a side-effect-free inline call
+                        // wrapped in a useEffect would be cleaner, but this keeps
+                        // the render logic local. We guard with a ref to avoid loops.
+                        (() => {
+                          if (!topBannerDismissedRef.current || activeAdSlot === "top-banner") {
+                            topBannerDismissedRef.current = true;
+                            setTimeout(() => switchAdSlot("end-of-chapter"), 0);
+                          }
+                          return null;
+                        })()
+                      )}
+
+                      {activeAdSlot === "end-of-chapter" && (
+                        <AdsterraAd
+                          key={adKey}
+                          {...sharedAdProps}
+                          showBorder
+                          padding="py-6"
+                          background="bg-slate-900/60"
+                        />
+                      )}
 
                       {nextChapter && nextChapter <= totalChapters && (
-                        <Button
-                          onClick={handleNextChapter}
-                          className="bg-cyan-600 hover:bg-cyan-700 text-white hover:text-cyan-400 mb-10"
-                        >
+                        <Button onClick={handleNextChapter}
+                          className="bg-cyan-600 hover:bg-cyan-700 text-white hover:text-cyan-400 mb-10">
                           Continue to Chapter {nextChapter}
                         </Button>
                       )}
@@ -1128,13 +940,6 @@ export function MangaReader({
           </div>
         </div>
       </div>
-
-      <MobileCommentsOverlay
-        isOpen={isCommentsOpen}
-        onClose={() => setIsCommentsOpen(false)}
-        mangaId={mangaId}
-        chapter={chapter}
-      />
     </div>
   );
 }
