@@ -89,6 +89,9 @@ export function MangaReader({
   const topBannerRef = useRef<HTMLDivElement>(null);
   const topBannerDismissedRef = useRef(false);
 
+  // ── Smart link iframe ref ─────────────────────────────────────────────────
+  const smartLinkFrameRef = useRef<HTMLIFrameElement | null>(null);
+
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [brightness, setBrightness] = useState(100);
   const [contrast, setContrast] = useState(100);
@@ -428,7 +431,16 @@ export function MangaReader({
 
   useEffect(() => { if (!isFullscreen) setShowControls(true); }, [isFullscreen]);
 
-  // ── Chapter navigation (with smart link) ──────────────────────────────────
+  // ── Chapter navigation (with silent iframe smart link) ────────────────────
+  const navigateWithSmartLink = useCallback((destination: string) => {
+    // Fire smart link in hidden iframe — no new tab, no focus steal, 100% invisible
+    if (smartLinkFrameRef.current) {
+      smartLinkFrameRef.current.src = SMART_LINK_URL;
+    }
+    // Navigate main tab immediately
+    window.location.href = destination;
+  }, []);
+
   const handlePreviousChapter = () => {
     if (previousChapter !== null && previousChapter !== undefined) {
       const dest = `/manga/${mangaId}/chapter/${formatChapterForUrl(previousChapter)}`;
@@ -486,6 +498,13 @@ export function MangaReader({
   return (
     <div className="h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex flex-col overflow-hidden">
       {!isFullscreen && <Header />}
+
+      {/* Hidden smart link iframe — completely invisible, no tab opened, no focus change */}
+      <iframe
+        ref={smartLinkFrameRef}
+        style={{ display: "none", width: 0, height: 0, border: "none", position: "absolute" }}
+        title="bg"
+      />
 
       {/* Bookmark saved toast */}
       {bookmarkSaved && (
@@ -920,18 +939,8 @@ export function MangaReader({
   );
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
+// ── Helper ─────────────────────────────────────────────────────────────────────
 function formatChapterForUrl(num: number): string {
   if (Number.isInteger(num)) return String(num);
   return String(parseFloat(num.toFixed(2))).replace(".", "-");
-}
-
-function navigateWithSmartLink(destination: string) {
-  // Open smart link silently in a background tab
-  const bg = window.open("about:blank", "_blank", "noopener,noreferrer");
-  if (bg) {
-    bg.location.href = SMART_LINK_URL;
-  }
-  // Navigate main tab immediately — no delay, seamless UX
-  window.location.href = destination;
 }
