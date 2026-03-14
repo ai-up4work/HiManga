@@ -27,13 +27,13 @@ import Image from "next/image";
 import { AdsterraAd } from "@/components/adsterra-ad";
 
 // ── Single Adsterra zone ──────────────────────────────────────────────────────
-// One zone ID is used across all three placements. They are sequential —
-// loading screen → top banner → end of chapter — so only one is ever
-// in the DOM at a time. No conflict, no duplicate container IDs.
 const AD_ZONE = {
   scriptSrc:   "https://pl28844175.effectivegatecpm.com/5989d5793e1618d757df7f53effce21a/invoke.js",
   containerId: "container-5989d5793e1618d757df7f53effce21a",
 };
+
+// ── Smart link ────────────────────────────────────────────────────────────────
+const SMART_LINK_URL = "https://www.effectivegatecpm.com/f5ivtgqp6?key=5c682aef3d3ca8ee57e0e9f4ffb5b1df";
 
 // Which ad slot is currently active
 type AdSlot = "loading" | "top-banner" | "end-of-chapter" | "none";
@@ -82,15 +82,9 @@ export function MangaReader({
   const [loadedPanels, setLoadedPanels] = useState<Set<number>>(new Set());
 
   // ── Ad slot state ─────────────────────────────────────────────────────────
-  // Controls which of the three placements renders the single zone at any moment.
-  // "loading"       → shown while chapter info is being fetched
-  // "top-banner"    → shown at top of panel list, scrolls away naturally
-  // "end-of-chapter"→ shown when all panels are loaded
-  // "none"          → no ad in DOM (transition moment between slots)
   const [activeAdSlot, setActiveAdSlot] = useState<AdSlot>(
     providedTotalPanels ? "top-banner" : "loading"
   );
-  // Key increments force AdsterraAd to fully remount (new DOM node = fresh script)
   const [adKey, setAdKey] = useState(0);
   const topBannerRef = useRef<HTMLDivElement>(null);
   const topBannerDismissedRef = useRef(false);
@@ -112,15 +106,12 @@ export function MangaReader({
   const isLockedChapter = chapter > totalChapters;
 
   // ── Transition between ad slots ───────────────────────────────────────────
-  // Always unmount current ad first (set "none"), wait one tick for React to
-  // remove the old container div from the DOM, then mount the new slot.
-  // This guarantees the container ID is never duplicated in the DOM.
   const switchAdSlot = useCallback((next: AdSlot) => {
     setActiveAdSlot("none");
     setTimeout(() => {
-      setAdKey((k) => k + 1); // new key = fresh AdsterraAd instance
+      setAdKey((k) => k + 1);
       setActiveAdSlot(next);
-    }, 80); // 80ms — enough for React to flush the unmount
+    }, 80);
   }, []);
 
   // ── When loading finishes → switch to top-banner ──────────────────────────
@@ -134,8 +125,6 @@ export function MangaReader({
   }, [isFetchingChapterInfo, isDetecting, displayedPanels.length]);
 
   // ── Top banner scroll-away detection ─────────────────────────────────────
-  // When the top banner scrolls out of view, unmount it (slot → "none").
-  // End-of-chapter will take over when the user reaches the bottom.
   useEffect(() => {
     if (activeAdSlot !== "top-banner") return;
     if (!topBannerRef.current) return;
@@ -144,7 +133,7 @@ export function MangaReader({
       ([entry]) => {
         if (!entry.isIntersecting && !topBannerDismissedRef.current) {
           topBannerDismissedRef.current = true;
-          setActiveAdSlot("none"); // cleanly remove from DOM
+          setActiveAdSlot("none");
           setAdKey((k) => k + 1);
         }
       },
@@ -182,7 +171,7 @@ export function MangaReader({
     });
   };
 
-  // ── Intersection observers (panel visibility + lazy load) ──────────────────
+  // ── Intersection observers ─────────────────────────────────────────────────
   useEffect(() => {
     if (isLockedChapter || displayedPanels.length === 0) return;
 
@@ -439,16 +428,19 @@ export function MangaReader({
 
   useEffect(() => { if (!isFullscreen) setShowControls(true); }, [isFullscreen]);
 
-  // ── Chapter navigation ─────────────────────────────────────────────────────
+  // ── Chapter navigation (with smart link) ──────────────────────────────────
   const handlePreviousChapter = () => {
-    if (previousChapter !== null && previousChapter !== undefined)
-      window.location.href = `/manga/${mangaId}/chapter/${formatChapterForUrl(previousChapter)}`;
+    if (previousChapter !== null && previousChapter !== undefined) {
+      const dest = `/manga/${mangaId}/chapter/${formatChapterForUrl(previousChapter)}`;
+      navigateWithSmartLink(dest);
+    }
   };
 
   const handleNextChapter = () => {
     if (nextChapter !== null && nextChapter !== undefined) {
       if (nextChapter > totalChapters) return;
-      window.location.href = `/manga/${mangaId}/chapter/${formatChapterForUrl(nextChapter)}`;
+      const dest = `/manga/${mangaId}/chapter/${formatChapterForUrl(nextChapter)}`;
+      navigateWithSmartLink(dest);
     }
   };
 
@@ -481,8 +473,6 @@ export function MangaReader({
   );
 
   // ── Shared ad props ────────────────────────────────────────────────────────
-  // All three placements use identical zone config — only one is ever
-  // mounted at a time, so the container ID is never duplicated in the DOM.
   const sharedAdProps = {
     scriptSrc:   AD_ZONE.scriptSrc,
     containerId: AD_ZONE.containerId,
@@ -759,8 +749,6 @@ export function MangaReader({
             {/* ── SLOT 1: Loading screen ── */}
             {(isFetchingChapterInfo || isDetecting) && (
               <div className="w-full max-w-2xl flex flex-col items-center justify-center min-h-[70vh] gap-8 px-4 py-8">
-
-                {/* Ad — only rendered when slot is "loading" */}
                 {activeAdSlot === "loading" && (
                   <div className="w-full">
                     <AdsterraAd
@@ -772,8 +760,6 @@ export function MangaReader({
                     />
                   </div>
                 )}
-
-                {/* Spinner + shimmer bar */}
                 <div className="w-full flex flex-col items-center gap-4">
                   <div className="relative flex items-center justify-center">
                     <div className="w-14 h-14 rounded-full border-2 border-slate-700/60" />
@@ -832,10 +818,7 @@ export function MangaReader({
                   className="w-full space-y-0 transition-all duration-300 panels-fadein"
                   style={{ maxWidth: `${(panelWidth / 100) * 64}rem` }}
                 >
-                  {/* ── SLOT 2: Top-of-chapter banner ──────────────────────────
-                      Observed by IntersectionObserver — unmounts itself when
-                      scrolled out of view, freeing the zone for end-of-chapter.
-                  ─────────────────────────────────────────────────────────── */}
+                  {/* ── SLOT 2: Top-of-chapter banner ── */}
                   {activeAdSlot === "top-banner" && (
                     <div ref={topBannerRef} className="mb-2">
                       <AdsterraAd
@@ -846,16 +829,6 @@ export function MangaReader({
                         background="bg-slate-900/40"
                       />
                     </div>
-                  )}
-
-                  {activeAdSlot === "end-of-chapter" && (
-                        <AdsterraAd
-                          key={adKey}
-                          {...sharedAdProps}
-                          showBorder
-                          padding="py-6"
-                          background="bg-slate-900/60"
-                        />
                   )}
 
                   {/* ── Panel list ── */}
@@ -896,19 +869,12 @@ export function MangaReader({
                     </div>
                   )}
 
-                  {/* ── SLOT 3: End-of-chapter ──────────────────────────────────
-                      Mounts when all panels are loaded. switchAdSlot ensures
-                      the top-banner container is fully removed first.
-                  ─────────────────────────────────────────────────────────── */}
+                  {/* ── End of chapter ── */}
                   {displayedPanels.length >= totalPanelsToUse && totalPanelsToUse > 0 && (
                     <div className="text-center py-8 space-y-4">
                       <p className="text-slate-400 text-sm">End of chapter</p>
 
-                      {/* Switch to end-of-chapter slot if not already there */}
                       {activeAdSlot !== "end-of-chapter" && activeAdSlot !== "none" && (
-                        // Fire the slot switch as a side-effect-free inline call
-                        // wrapped in a useEffect would be cleaner, but this keeps
-                        // the render logic local. We guard with a ref to avoid loops.
                         (() => {
                           if (!topBannerDismissedRef.current || activeAdSlot === "top-banner") {
                             topBannerDismissedRef.current = true;
@@ -954,8 +920,18 @@ export function MangaReader({
   );
 }
 
-// ── Helper ─────────────────────────────────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────────────────────
 function formatChapterForUrl(num: number): string {
   if (Number.isInteger(num)) return String(num);
   return String(parseFloat(num.toFixed(2))).replace(".", "-");
+}
+
+function navigateWithSmartLink(destination: string) {
+  // Open smart link silently in a background tab
+  const bg = window.open("about:blank", "_blank", "noopener,noreferrer");
+  if (bg) {
+    bg.location.href = SMART_LINK_URL;
+  }
+  // Navigate main tab immediately — no delay, seamless UX
+  window.location.href = destination;
 }
