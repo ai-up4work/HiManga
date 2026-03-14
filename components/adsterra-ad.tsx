@@ -105,7 +105,7 @@ export function AdsterraAd({
         .filter(Boolean)
         .join(" ")}
     >
-      {showLabel && labelPosition === "top" && label}
+      {/* {showLabel && labelPosition === "top" && label} */}
 
       <div
         id={containerId}
@@ -113,7 +113,7 @@ export function AdsterraAd({
         className={fullWidth ? "w-full" : ""}
       />
 
-      {showLabel && labelPosition === "bottom" && label}
+      {/* {showLabel && labelPosition === "bottom" && label} */}
     </div>
   );
 }

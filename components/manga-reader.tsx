@@ -848,6 +848,16 @@ export function MangaReader({
                     </div>
                   )}
 
+                  {activeAdSlot === "end-of-chapter" && (
+                        <AdsterraAd
+                          key={adKey}
+                          {...sharedAdProps}
+                          showBorder
+                          padding="py-6"
+                          background="bg-slate-900/60"
+                        />
+                  )}
+
                   {/* ── Panel list ── */}
                   {displayedPanels.map((panelNumber) => (
                     <div
