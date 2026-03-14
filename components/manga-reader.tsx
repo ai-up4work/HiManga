@@ -28,9 +28,8 @@ import Image from "next/image";
 import { AdsterraAd } from "@/components/adsterra-ad";
 
 // ── Single Adsterra zone ──────────────────────────────────────────────────────
-// One zone ID is reused across all three placements. They are always sequential:
-//   loading screen → top banner → end of chapter
-// Only one is ever in the DOM at a time so the container ID is never duplicated.
+// One zone, three placements. They are always sequential so the container ID
+// is never duplicated in the DOM.
 const AD_ZONE = {
   scriptSrc:   "https://pl28844175.effectivegatecpm.com/5989d5793e1618d757df7f53effce21a/invoke.js",
   containerId: "container-5989d5793e1618d757df7f53effce21a",
@@ -88,14 +87,17 @@ export function MangaReader({
   const [panelWidth, setPanelWidth] = useState(80);
   const [scrollSpeed, setScrollSpeed] = useState(50);
 
-  // ── Ad slot state ─────────────────────────────────────────────────────────
+  // ── Ad state ──────────────────────────────────────────────────────────────
+  // adKey increments force AdsterraAd to fully unmount+remount (fresh script).
+  // activeAdSlot drives which slot renders the ad. "none" = nothing in DOM.
   const [activeAdSlot, setActiveAdSlot] = useState<AdSlot>(
     providedTotalPanels ? "top-banner" : "loading"
   );
   const [adKey, setAdKey] = useState(0);
+
+  // Whether the top banner has scrolled out of view
+  const [topBannerVisible, setTopBannerVisible] = useState(true);
   const topBannerRef = useRef<HTMLDivElement>(null);
-  const topBannerScrolledPastRef = useRef(false);
-  const endOfChapterReachedRef = useRef(false);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -109,29 +111,70 @@ export function MangaReader({
   const totalPanelsToUse = detectedTotalPanels || providedTotalPanels || 0;
   const allPanelsLoaded = totalPanelsToUse > 0 && displayedPanels.length >= totalPanelsToUse;
 
-  // ── switchAdSlot: unmount current → wait one tick → mount next ────────────
-  const switchAdSlot = useCallback((next: AdSlot) => {
-    setActiveAdSlot("none");
-    setTimeout(() => {
-      setAdKey((k) => k + 1);
-      setActiveAdSlot(next);
-    }, 100);
-  }, []);
-
-  // ── TRANSITION 1: loading → top-banner ───────────────────────────────────
+  // ── Reset everything on chapter change ───────────────────────────────────
   useEffect(() => {
+    setTopBannerVisible(true);
+    setActiveAdSlot(providedTotalPanels ? "top-banner" : "loading");
+    setAdKey((k) => k + 1);
+  }, [chapter, providedTotalPanels]);
+
+  // ── Ad slot state machine ─────────────────────────────────────────────────
+  //
+  // The rules are simple and linear:
+  //
+  //  1. While loading          → slot = "loading"
+  //  2. Loading done           → slot = "top-banner"  (panels just appeared)
+  //  3. Top banner scrolled past → slot = "none"       (banner gone, ad removed)
+  //  4. All panels loaded      → slot = "end-of-chapter"
+  //
+  // Rules 2 and 4 can race (fast connection = loading ends AND all panels
+  // appear almost simultaneously). Rule 4 always wins because it's the
+  // most valuable placement — we check allPanelsLoaded first.
+
+  useEffect(() => {
+    // Rule 4: all panels loaded → always go to end-of-chapter regardless of
+    // what the current slot is. This handles the race condition where loading
+    // finishes so fast that top-banner never had a chance to render.
+    if (allPanelsLoaded) {
+      // Small delay so the panel DOM is fully painted before the ad mounts
+      const t = setTimeout(() => {
+        setActiveAdSlot("none");
+        setTimeout(() => {
+          setAdKey((k) => k + 1);
+          setActiveAdSlot("end-of-chapter");
+        }, 100);
+      }, 300);
+      return () => clearTimeout(t);
+    }
+  }, [allPanelsLoaded]);
+
+  useEffect(() => {
+    // Rule 2: loading finished and not all panels loaded yet → top-banner
     if (
       !isFetchingChapterInfo &&
       !isDetecting &&
       displayedPanels.length > 0 &&
+      !allPanelsLoaded &&
       activeAdSlot === "loading"
     ) {
-      topBannerScrolledPastRef.current = false;
-      switchAdSlot("top-banner");
+      setActiveAdSlot("none");
+      setTimeout(() => {
+        setAdKey((k) => k + 1);
+        setActiveAdSlot("top-banner");
+        setTopBannerVisible(true);
+      }, 100);
     }
-  }, [isFetchingChapterInfo, isDetecting, displayedPanels.length, activeAdSlot, switchAdSlot]);
+  }, [isFetchingChapterInfo, isDetecting, displayedPanels.length, allPanelsLoaded, activeAdSlot]);
 
-  // ── TRANSITION 2: top-banner scrolls away → none ─────────────────────────
+  useEffect(() => {
+    // Rule 3: top banner scrolled past → remove from DOM
+    if (activeAdSlot === "top-banner" && !topBannerVisible) {
+      setActiveAdSlot("none");
+      setAdKey((k) => k + 1);
+    }
+  }, [topBannerVisible, activeAdSlot]);
+
+  // ── Top banner IntersectionObserver ──────────────────────────────────────
   useEffect(() => {
     if (activeAdSlot !== "top-banner") return;
     const el = topBannerRef.current;
@@ -139,11 +182,8 @@ export function MangaReader({
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (!entry.isIntersecting && !topBannerScrolledPastRef.current) {
-          topBannerScrolledPastRef.current = true;
-          // Just remove from DOM — end-of-chapter effect will take over
-          setAdKey((k) => k + 1);
-          setActiveAdSlot("none");
+        if (!entry.isIntersecting) {
+          setTopBannerVisible(false);
         }
       },
       { threshold: 0 }
@@ -152,26 +192,6 @@ export function MangaReader({
     observer.observe(el);
     return () => observer.disconnect();
   }, [activeAdSlot, topBannerRef.current]);
-
-  // ── TRANSITION 3: all panels loaded → end-of-chapter ─────────────────────
-  useEffect(() => {
-    if (
-      allPanelsLoaded &&
-      !endOfChapterReachedRef.current &&
-      activeAdSlot !== "end-of-chapter"
-    ) {
-      endOfChapterReachedRef.current = true;
-      switchAdSlot("end-of-chapter");
-    }
-  }, [allPanelsLoaded, activeAdSlot, switchAdSlot]);
-
-  // ── Reset ad state on chapter change ─────────────────────────────────────
-  useEffect(() => {
-    topBannerScrolledPastRef.current = false;
-    endOfChapterReachedRef.current = false;
-    setActiveAdSlot(providedTotalPanels ? "top-banner" : "loading");
-    setAdKey((k) => k + 1);
-  }, [chapter]);
 
   // ── Shared ad props ───────────────────────────────────────────────────────
   const sharedAdProps = {
@@ -558,7 +578,6 @@ export function MangaReader({
     <div className="h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex flex-col overflow-hidden">
       {!isFullscreen && <Header />}
 
-      {/* Bookmark saved toast */}
       {bookmarkSaved && (
         <div className="fixed top-20 right-4 z-[100] animate-in slide-in-from-right duration-300">
           <div className="bg-gradient-to-r from-cyan-500/90 to-cyan-600/90 backdrop-blur-xl border border-cyan-400/30 rounded-lg px-4 py-3 shadow-lg shadow-cyan-500/20 flex items-center gap-3">
@@ -575,7 +594,6 @@ export function MangaReader({
 
       <div className="flex flex-1 relative overflow-hidden">
 
-        {/* Mobile sidebar backdrop */}
         {sidebarOpen && !isFullscreen && (
           <div
             className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
@@ -583,7 +601,6 @@ export function MangaReader({
           />
         )}
 
-        {/* Sidebar */}
         {sidebarOpen && !isFullscreen && (
           <aside className="fixed lg:relative left-0 top-0 bottom-0 w-72 border-r border-cyan-500/20 bg-gradient-to-r from-slate-900/95 to-slate-900/90 backdrop-blur-xl z-50 lg:z-30 flex-shrink-0 overflow-auto transition-transform duration-300">
             <div className="space-y-2">
@@ -608,7 +625,6 @@ export function MangaReader({
           </aside>
         )}
 
-        {/* Main content area */}
         <div
           className="flex-1 flex flex-col bg-gradient-to-b from-slate-900/50 to-slate-950 overflow-hidden relative"
           style={{
@@ -626,12 +642,9 @@ export function MangaReader({
             </Button>
           )}
 
-          {/* Top controls bar */}
           {showControls && !isFullscreen && (
             <div className="bg-gradient-to-r from-slate-900/80 to-slate-900/60 backdrop-blur-xl border-t border-cyan-500/20 p-4 flex-shrink-0 transition-all duration-300 relative z-40">
               <div className="flex items-center justify-between gap-2 flex-wrap">
-
-                {/* Left — sidebar + chapter nav */}
                 <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
@@ -641,7 +654,6 @@ export function MangaReader({
                   >
                     <Menu className="w-4 h-4" />
                   </Button>
-
                   <Button
                     variant="outline"
                     size="sm"
@@ -651,11 +663,9 @@ export function MangaReader({
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </Button>
-
                   <Card className="px-3 py-2 text-center bg-gradient-to-r from-slate-800/50 to-slate-800/30 border-cyan-500/20 text-slate-200">
                     <p className="text-xs font-medium">Ch {chapter}</p>
                   </Card>
-
                   <Button
                     variant="outline"
                     size="sm"
@@ -670,14 +680,12 @@ export function MangaReader({
                   </Button>
                 </div>
 
-                {/* Center — manga title */}
                 <div className="hidden sm:flex flex-1 justify-center px-4 min-w-0">
                   <p className="text-sm font-semibold text-slate-200 truncate max-w-xs tracking-wide">
                     {mangaTitle}
                   </p>
                 </div>
 
-                {/* Right — fullscreen, settings, close */}
                 <div className="flex items-center gap-1">
                   <Button
                     variant="outline"
@@ -687,7 +695,6 @@ export function MangaReader({
                   >
                     <Maximize2 className="w-4 h-4" />
                   </Button>
-
                   <div className="relative">
                     <Button
                       variant="outline"
@@ -705,7 +712,6 @@ export function MangaReader({
                       <span className="absolute -top-1 -right-1 w-2 h-2 bg-pink-500 rounded-full animate-pulse" />
                     )}
                   </div>
-
                   <Button
                     variant="ghost"
                     size="sm"
@@ -719,7 +725,6 @@ export function MangaReader({
             </div>
           )}
 
-          {/* Advanced controls overlay — non-fullscreen */}
           {showAdvancedControls && !isFullscreen && (
             <>
               <div
@@ -784,7 +789,6 @@ export function MangaReader({
             </>
           )}
 
-          {/* Fullscreen top bar */}
           {isFullscreen && (
             <div
               className={`absolute top-0 left-0 right-0 z-50 transition-all duration-300 ${
@@ -803,7 +807,6 @@ export function MangaReader({
                     >
                       <ChevronLeft className="w-4 h-4" />
                     </Button>
-
                     <Card className="px-3 py-2 text-center bg-gradient-to-r from-slate-800/50 to-slate-800/30 border-cyan-500/20 text-slate-200">
                       <p className="text-xs font-medium">
                         Ch {chapter}
@@ -812,7 +815,6 @@ export function MangaReader({
                         )}
                       </p>
                     </Card>
-
                     <Button
                       variant="outline"
                       size="sm"
@@ -826,13 +828,11 @@ export function MangaReader({
                       <ChevronRight className="w-4 h-4" />
                     </Button>
                   </div>
-
                   <nav className="hidden lg:flex items-center gap-8">
                     <Link href="/" className="text-white/70 hover:text-pink-500 transition font-semibold">Home</Link>
                     <Link href="/library" className="text-white/70 hover:text-pink-500 transition font-semibold">Library</Link>
                     <Link href="/trending" className="text-white/70 hover:text-pink-500 transition font-semibold">Trending</Link>
                   </nav>
-
                   <div className="flex items-center gap-1">
                     <Button
                       variant="outline"
@@ -842,7 +842,6 @@ export function MangaReader({
                     >
                       <Minimize2 className="w-4 h-4" />
                     </Button>
-
                     <div className="relative">
                       <Button
                         variant="outline"
@@ -866,7 +865,6 @@ export function MangaReader({
             </div>
           )}
 
-          {/* Advanced controls overlay — fullscreen */}
           {showAdvancedControls && isFullscreen && (
             <>
               <div
@@ -960,7 +958,6 @@ export function MangaReader({
             {/* ── SLOT 1: Loading screen ─────────────────────────────────────── */}
             {(isFetchingChapterInfo || isDetecting) && (
               <div className="w-full max-w-2xl flex flex-col items-center justify-center min-h-[70vh] gap-8 px-4 py-8">
-
                 {activeAdSlot === "loading" && (
                   <div className="w-full">
                     <AdsterraAd
@@ -972,7 +969,6 @@ export function MangaReader({
                     />
                   </div>
                 )}
-
                 <div className="w-full flex flex-col items-center gap-4">
                   <div className="relative flex items-center justify-center">
                     <div className="w-14 h-14 rounded-full border-2 border-slate-700/60" />
@@ -1040,8 +1036,9 @@ export function MangaReader({
                   style={{ maxWidth: `${(panelWidth / 100) * 64}rem` }}
                 >
                   {/* ── SLOT 2: Top-of-chapter banner ─────────────────────────
-                      IntersectionObserver (in useEffect above) watches this ref.
-                      When it scrolls out of view the slot switches to "none".
+                      Renders only when slot is "top-banner".
+                      IntersectionObserver sets topBannerVisible=false when
+                      it scrolls out — Rule 3 useEffect removes it from DOM.
                   ──────────────────────────────────────────────────────────── */}
                   {activeAdSlot === "top-banner" && (
                     <div ref={topBannerRef} className="mb-2">
@@ -1086,7 +1083,6 @@ export function MangaReader({
                     </div>
                   ))}
 
-                  {/* Batch-load spinner */}
                   {isLoading && (
                     <div className="flex justify-center py-8">
                       <Loader2 className="w-6 h-6 animate-spin text-cyan-400" />
@@ -1094,8 +1090,9 @@ export function MangaReader({
                   )}
 
                   {/* ── SLOT 3: End-of-chapter ────────────────────────────────
-                      useEffect TRANSITION 3 above fires switchAdSlot when
-                      allPanelsLoaded becomes true. This just renders the result.
+                      Rule 4 useEffect fires switchAdSlot("end-of-chapter")
+                      when allPanelsLoaded becomes true — regardless of which
+                      slot was active before. This is always the final state.
                   ──────────────────────────────────────────────────────────── */}
                   {allPanelsLoaded && (
                     <div className="text-center py-8 space-y-4">
@@ -1136,7 +1133,7 @@ export function MangaReader({
         </div>
       </div>
 
-      {/* Mobile comments overlay — preserved from original */}
+      {/* Mobile comments overlay */}
       <MobileCommentsOverlay
         isOpen={isCommentsOpen}
         onClose={() => setIsCommentsOpen(false)}
