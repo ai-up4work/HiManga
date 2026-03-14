@@ -1087,7 +1087,6 @@ export function MangaReader({
                   {displayedPanels.length >= totalPanelsToUse && totalPanelsToUse > 0 && (
                     <div className="text-center py-8 space-y-4">
                       <p className="text-slate-400 text-sm">End of chapter</p>
-
                       <AdsterraAd
                         scriptSrc={END_OF_CHAPTER_AD.scriptSrc}
                         containerId={END_OF_CHAPTER_AD.containerId}
