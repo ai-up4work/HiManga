@@ -4,28 +4,28 @@ import { useEffect, useRef } from "react";
 
 interface AdsterraAdProps {
   // ── Script & zone ──────────────────────────────────────────────────────────
-  scriptSrc: string;          // Adsterra invoke.js URL
-  containerId: string;        // Adsterra container div id
+  scriptSrc: string;
+  containerId: string;
 
   // ── Visibility ─────────────────────────────────────────────────────────────
-  enabled?: boolean;          // hard on/off — defaults to NEXT_PUBLIC_ADS_ENABLED
+  enabled?: boolean;
 
   // ── Layout ─────────────────────────────────────────────────────────────────
-  centered?: boolean;         // center the container horizontally
-  fullWidth?: boolean;        // w-full on the container div
-  minHeight?: number;         // min-height in px for the ad slot (default 0)
-  padding?: string;           // tailwind padding classes e.g. "py-6 px-4"
-  className?: string;         // extra classes on the outer wrapper
+  centered?: boolean;
+  fullWidth?: boolean;
+  minHeight?: number;
+  padding?: string;
+  className?: string;
 
   // ── Label ──────────────────────────────────────────────────────────────────
-  showLabel?: boolean;        // show "Advertisement" label (default false)
-  labelText?: string;         // custom label text (default "Advertisement")
-  labelPosition?: "top" | "bottom"; // where the label appears (default "top")
+  showLabel?: boolean;
+  labelText?: string;
+  labelPosition?: "top" | "bottom";
 
   // ── Border / background ────────────────────────────────────────────────────
-  showBorder?: boolean;       // show top/bottom border (default false)
-  borderColor?: string;       // tailwind border color class (default "border-slate-700/40")
-  background?: string;        // tailwind bg class (default "bg-transparent")
+  showBorder?: boolean;
+  borderColor?: string;
+  background?: string;
 }
 
 export function AdsterraAd({
@@ -44,33 +44,51 @@ export function AdsterraAd({
   borderColor = "border-slate-700/40",
   background = "bg-transparent",
 }: AdsterraAdProps) {
-  // Resolve enabled: prop takes priority, falls back to env var
   const isEnabled =
     enabled !== undefined
       ? enabled
       : process.env.NEXT_PUBLIC_ADS_ENABLED === "true";
 
-  const injected = useRef(false);
+  // Track by containerId — re-fires when containerId changes (chapter nav),
+  // but does not double-fire within the same mount cycle.
+  const lastContainerId = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isEnabled) return;
-    if (injected.current) return;
-    if (document.querySelector(`script[src="${scriptSrc}"]`)) return;
+
+    // Already injected for this exact container in this mount — skip.
+    if (lastContainerId.current === containerId) return;
+    lastContainerId.current = containerId;
+
+    // Remove any stale script tagged to this container so the new chapter
+    // container div gets a fresh execution.
+    const existing = document.querySelector(
+      `script[data-adsterra-container="${containerId}"]`
+    );
+    if (existing) existing.remove();
 
     const s = document.createElement("script");
     s.src = scriptSrc;
     s.async = true;
     s.setAttribute("data-cfasync", "false");
+    s.setAttribute("data-adsterra-container", containerId);
     document.body.appendChild(s);
 
-    injected.current = true;
-  }, [isEnabled, scriptSrc]);
+    return () => {
+      // Clean up on unmount so the next mount always injects fresh.
+      const el = document.querySelector(
+        `script[data-adsterra-container="${containerId}"]`
+      );
+      if (el) el.remove();
+      lastContainerId.current = null;
+    };
+  }, [isEnabled, scriptSrc, containerId]);
 
   if (!isEnabled) return null;
 
   const label = (
     <p className="text-[10px] text-slate-600 uppercase tracking-widest select-none">
-      {/* {labelText} */}
+      {labelText}
     </p>
   );
 
