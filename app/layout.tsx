@@ -107,13 +107,13 @@ export default function RootLayout({
     <html lang="en" className="dark overflow-x-hidden">
       <head>
         {/* ── Monetag Global In-Page Push — fires on ALL pages ── */}
-        {globalZoneId && (
+        {/* {globalZoneId && (
           <script
             dangerouslySetInnerHTML={{
               __html: `(function(s){s.dataset.zone='10662299',s.src='https://nap5k.com/tag.min.js'})([document.documentElement, document.body].filter(Boolean).pop().appendChild(document.createElement('script')))`,
             }}
 />
-        )}
+        )} */}
 
         {/* Explicit meta tags for WhatsApp */}
         <meta property="og:image" content="https://himanga.fun/Og-image.jpg" />
