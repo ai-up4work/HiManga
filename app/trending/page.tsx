@@ -2,13 +2,21 @@
 
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
-import { useMangas } from "@/hooks/use-mangas";
-import { supabase } from "@/lib/supabase";
 import { AnimeCard } from "@/components/anime-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Search, TrendingUp, ArrowRight } from "lucide-react";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import type { Manga } from "@/lib/mock-data";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface TrendingResponse {
+  mangas: Manga[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
 
 // ── Skeletons ─────────────────────────────────────────────────────────────────
 
@@ -67,77 +75,96 @@ const SORT_OPTIONS: { value: "rating" | "views" | "recent"; label: string }[] = 
   { value: "recent", label: "Recent" },
 ];
 
+const PAGE_SIZE = 20;
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function TrendingPage() {
-  const [mangaIds, setMangaIds] = useState<string[]>([]);
-  const [isLoadingIds, setIsLoadingIds] = useState(true);
+  const [mangas, setMangas] = useState<Manga[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"rating" | "views" | "recent">("rating");
-  const [itemsPerPage] = useState(10);
-  const [displayedItems, setDisplayedItems] = useState(itemsPerPage);
+
+  // Debounce search
+  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
 
   useEffect(() => {
-    async function fetchMangaIds() {
-      try {
-        const { data, error } = await supabase
-          .from("mangas")
-          .select("id")
-          .order("average_rating", { ascending: false });
-        if (error) throw error;
-        setMangaIds(data?.map((m) => m.id) || []);
-      } catch (error) {
-        console.error("Error fetching manga IDs:", error);
-      } finally {
-        setIsLoadingIds(false);
-      }
-    }
-    fetchMangaIds();
-  }, []);
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    searchTimeout.current = setTimeout(() => setDebouncedSearch(searchQuery), 400);
+    return () => { if (searchTimeout.current) clearTimeout(searchTimeout.current); };
+  }, [searchQuery]);
 
-  const { favoriteMangas: allMangas, isLoading: mangasLoading } = useMangas(
-    "system",
-    mangaIds,
-    []
+  // Build API URL
+  const buildUrl = useCallback(
+    (p: number) => {
+      const params = new URLSearchParams({
+        page: String(p),
+        pageSize: String(PAGE_SIZE),
+        sortBy,
+      });
+      if (selectedGenre) params.set("genre", selectedGenre);
+      if (debouncedSearch) params.set("search", debouncedSearch);
+      return `/api/trending?${params.toString()}`;
+    },
+    [sortBy, selectedGenre, debouncedSearch]
   );
 
-  const isLoading = isLoadingIds || mangasLoading;
+  // Initial / filter fetch — resets list
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    setPage(0);
 
+    fetch(buildUrl(0))
+      .then((r) => r.json())
+      .then((data: TrendingResponse) => {
+        if (cancelled) return;
+        setMangas(data.mangas);
+        setTotal(data.total);
+      })
+      .catch(console.error)
+      .finally(() => { if (!cancelled) setIsLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [buildUrl]);
+
+  // Load more — appends to list
+  const handleLoadMore = useCallback(async () => {
+    const nextPage = page + 1;
+    setIsLoadingMore(true);
+    try {
+      const res = await fetch(buildUrl(nextPage));
+      const data: TrendingResponse = await res.json();
+      setMangas((prev) => [...prev, ...data.mangas]);
+      setPage(nextPage);
+    } catch (err) {
+      console.error("Load more error:", err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [page, buildUrl]);
+
+  // Derive genres from loaded mangas for the filter pills
   const genres = useMemo(() => {
-    const allGenres = new Set<string>();
-    allMangas.forEach((manga) => manga.genre?.forEach((g) => allGenres.add(g)));
-    return ["All", ...Array.from(allGenres).sort()];
-  }, [allMangas]);
+    const all = new Set<string>();
+    mangas.forEach((m) => m.genre?.forEach((g) => all.add(g)));
+    return ["All", ...Array.from(all).sort()];
+  }, [mangas]);
 
-  const filteredMangas = useMemo(() => {
-    let result = allMangas;
-    if (selectedGenre && selectedGenre !== "All")
-      result = result.filter((m) => m.genre?.includes(selectedGenre));
-    if (searchQuery)
-      result = result.filter(
-        (m) =>
-          m.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          m.author.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-    if (sortBy === "rating") result = [...result].sort((a, b) => b.rating - a.rating);
-    else if (sortBy === "views")
-      result = [...result].sort((a, b) => (b.views || 0) - (a.views || 0));
-    return result;
-  }, [allMangas, selectedGenre, searchQuery, sortBy]);
+  const hasMore = mangas.length < total;
 
-  const displayedMangas = filteredMangas.slice(0, displayedItems);
-  const hasMore = displayedItems < filteredMangas.length;
-
-  const handleLoadMore = () => setDisplayedItems((prev) => prev + itemsPerPage);
   const handleGenreClick = (genre: string) => {
     setSelectedGenre(genre === "All" ? null : genre);
-    setDisplayedItems(itemsPerPage);
   };
+
   const clearFilters = () => {
     setSelectedGenre(null);
     setSearchQuery("");
-    setDisplayedItems(itemsPerPage);
   };
 
   if (isLoading) return <TrendingPageSkeleton />;
@@ -176,12 +203,10 @@ export default function TrendingPage() {
 
         {/* ── Filters Row ──────────────────────────────────────────────── */}
         <div className="flex flex-col gap-3">
-          {/* Genre pills — horizontally scrollable, hidden scrollbar */}
           <div
             className="flex gap-2 overflow-x-auto pb-1"
             style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
           >
-            <style>{`.genre-scroll::-webkit-scrollbar { display: none; }`}</style>
             {genres.map((genre) => {
               const isActive = genre === activeGenre;
               return (
@@ -201,7 +226,6 @@ export default function TrendingPage() {
             })}
           </div>
 
-          {/* Sort — full width on mobile, auto on sm+ */}
           <div className="flex items-center gap-2">
             <span className="text-white/40 text-xs font-medium flex-shrink-0">Sort by</span>
             <select
@@ -221,17 +245,17 @@ export default function TrendingPage() {
         {/* ── Results count ─────────────────────────────────────────────── */}
         <p className="text-xs text-white/40 -mt-2">
           Showing{" "}
-          <span className="text-white/70 font-medium">{displayedMangas.length}</span>
+          <span className="text-white/70 font-medium">{mangas.length}</span>
           {" "}of{" "}
-          <span className="text-white/70 font-medium">{filteredMangas.length}</span>
+          <span className="text-white/70 font-medium">{total}</span>
           {" "}manga
         </p>
 
         {/* ── Grid ──────────────────────────────────────────────────────── */}
-        {displayedMangas.length > 0 ? (
+        {mangas.length > 0 ? (
           <>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-              {displayedMangas.map((manga) => (
+              {mangas.map((manga) => (
                 <AnimeCard key={manga.id} manga={manga} />
               ))}
             </div>
@@ -241,10 +265,11 @@ export default function TrendingPage() {
                 <Button
                   size="lg"
                   onClick={handleLoadMore}
-                  className="w-full sm:w-auto bg-gradient-to-r from-pink-500 to-pink-600 hover:from-pink-600 hover:to-pink-700 text-white font-bold px-8 py-6 text-base rounded-full flex items-center justify-center gap-2 transition-all hover:shadow-xl hover:shadow-pink-500/50 hover:scale-105"
+                  disabled={isLoadingMore}
+                  className="w-full sm:w-auto bg-gradient-to-r from-pink-500 to-pink-600 hover:from-pink-600 hover:to-pink-700 text-white font-bold px-8 py-6 text-base rounded-full flex items-center justify-center gap-2 transition-all hover:shadow-xl hover:shadow-pink-500/50 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                 >
-                  Load More Manga
-                  <ArrowRight className="w-5 h-5" />
+                  {isLoadingMore ? "Loading…" : "Load More Manga"}
+                  {!isLoadingMore && <ArrowRight className="w-5 h-5" />}
                 </Button>
               </div>
             )}
