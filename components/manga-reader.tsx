@@ -861,7 +861,7 @@ export function MangaReader({
                       {loadingPanels.has(panelNumber) ? (
                         <PanelLoadingPlaceholder panelNumber={panelNumber} />
                       ) : (
-                        <Image
+                        <img
                           src={getOptimizedPanelUrl(panelNumber)}
                           alt={`Panel ${panelNumber}`}
                           width={800}

@@ -1,77 +1,36 @@
-// app/api/manga/image/route.ts
+// ==============================================
+// FILE: app/api/manga/image/route.ts
+// FIXED: Returns 301 redirect instead of proxying image bytes.
+// Vercel origin only handles a tiny URL lookup — no image bytes flow through.
+// Cloudflare caches the final image directly at the edge.
+// ==============================================
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import redis from "@/lib/redis";
-import { TTL } from "@/lib/cacheTTL";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+// REMOVED: serverCache (was buffering full image bytes — the main cause of
+// Fast Origin Transfer. Images are now cached by Cloudflare directly.)
+
+// URL-only cache: stores the resolved image URL per panel (tiny strings, not buffers)
+// This survives warm instances and avoids repeated Supabase lookups.
+// For multi-instance production, replace with Vercel KV / Upstash Redis.
+const urlCache = new Map<string, {
+  url: string;
+  timestamp: number;
+}>();
+
+const CACHE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
 function getCacheKey(mangaSlug: string, chapter: number, panel: number): string {
-  return `panel-url:${mangaSlug}:${chapter}:${panel}`;
+  return `${mangaSlug}_${chapter}_${panel}`;
 }
 
-async function fetchImageWithRetry(imageUrl: string, retries = 3): Promise<Response> {
-  const methods = [
-    async () => {
-      return fetch(imageUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          "Referer": "https://mangaread.org/",
-          "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-          "Accept-Language": "en-US,en;q=0.9",
-          "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="120"',
-          "sec-ch-ua-mobile": "?0",
-          "sec-ch-ua-platform": '"Windows"',
-          "Sec-Fetch-Dest": "image",
-          "Sec-Fetch-Mode": "no-cors",
-          "Sec-Fetch-Site": "same-origin",
-        },
-        cache: "force-cache",
-      });
-    },
-    async () => {
-      const proxiedUrl = "https://corsproxy.io/?" + encodeURIComponent(imageUrl);
-      return fetch(proxiedUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        },
-        cache: "force-cache",
-      });
-    },
-    async () => {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      return fetch(imageUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-          "Referer": "https://mangaread.org/",
-          "Accept": "image/*",
-        },
-        cache: "force-cache",
-      });
-    },
-  ];
-
-  let lastError: Error | null = null;
-  
-  for (let i = 0; i < retries; i++) {
-    for (const method of methods) {
-      try {
-        const response = await method();
-        if (response.ok) return response;
-      } catch (error) {
-        lastError = error as Error;
-        console.error(`Fetch attempt failed:`, error);
-      }
-    }
-    if (i < retries - 1) {
-      await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
-    }
-  }
-  
-  throw lastError || new Error("All fetch attempts failed");
+function isCacheExpired(timestamp: number): boolean {
+  return Date.now() - timestamp > CACHE_EXPIRY_MS;
 }
 
 export async function GET(request: NextRequest) {
@@ -79,7 +38,6 @@ export async function GET(request: NextRequest) {
   const mangaSlug = searchParams.get("manga");
   const chapter = searchParams.get("chapter");
   const panel = searchParams.get("panel");
-  const skipCache = searchParams.get("skipCache") === "true";
 
   if (!mangaSlug || !chapter || !panel) {
     return NextResponse.json(
@@ -100,73 +58,71 @@ export async function GET(request: NextRequest) {
 
   const cacheKey = getCacheKey(mangaSlug, chapterNum, panelNum);
 
-  try {
-    let imageUrl: string | undefined;
+  // Check in-memory URL cache first (avoids Supabase round-trip on warm instances)
+  let imageUrl: string | undefined;
+  const cachedUrl = urlCache.get(cacheKey);
 
-    if (!skipCache) {
-      const cachedUrl = await redis.get(cacheKey);
-      if (cachedUrl) {
-        imageUrl = cachedUrl as string;
-      }
-    }
+  if (cachedUrl && !isCacheExpired(cachedUrl.timestamp)) {
+    console.log(`[Manga Image] URL Cache HIT: ${mangaSlug} ch${chapterNum} p${panelNum}`);
+    imageUrl = cachedUrl.url;
+  } else {
+    console.log(`[Manga Image] URL Cache MISS: Querying Supabase for ${mangaSlug} ch${chapterNum} p${panelNum}`);
 
-    if (!imageUrl) {
-      const { data, error } = await supabase
-        .from("panels")
-        .select(`
-          image_url,
-          chapter:chapters!inner(
-            chapter_number,
-            manga:mangas!inner(
-              slug
-            )
+    const { data, error } = await supabase
+      .from("panels")
+      .select(
+        `
+        image_url,
+        chapter:chapters!inner(
+          chapter_number,
+          manga:mangas!inner(
+            slug
           )
-        `)
-        .eq("chapter.manga.slug", mangaSlug)
-        .eq("chapter.chapter_number", chapterNum)
-        .eq("panel_number", panelNum)
-        .single();
+        )
+      `
+      )
+      .eq("chapter.manga.slug", mangaSlug)
+      .eq("chapter.chapter_number", chapterNum)
+      .eq("panel_number", panelNum)
+      .single();
 
-      if (error || !data) {
-        return NextResponse.json({ error: "Image not found" }, { status: 404 });
-      }
-
-      imageUrl = data.image_url;
-      await redis.set(cacheKey, imageUrl, 'EX', TTL.WEEK);
+    if (error || !data) {
+      console.error("Database query error:", error);
+      return NextResponse.json(
+        { error: "Image not found" },
+        { status: 404 }
+      );
     }
 
-    const imageResponse = await fetchImageWithRetry(imageUrl);
-    const imageBuffer = await imageResponse.arrayBuffer();
-    const contentType = imageResponse.headers.get("content-type") || "image/jpeg";
-    const buffer = Buffer.from(imageBuffer);
+    imageUrl = data.image_url;
 
-    return new NextResponse(buffer, {
-      headers: {
-        "Content-Type": contentType,
+    // Cache only the URL string — negligible memory, survives warm instances
+    urlCache.set(cacheKey, { url: imageUrl, timestamp: Date.now() });
 
-        // ── Cloudflare will cache this for 7 days ─────────────────────────────
-        // public        → cacheable by Cloudflare edge nodes
-        // s-maxage      → how long Cloudflare keeps it (7 days)
-        // stale-while-revalidate → serve stale while refreshing in background
-        // immutable     → URL content never changes, skip revalidation
-        "Cache-Control": "public, s-maxage=604800, stale-while-revalidate=86400, immutable",
-
-        "Content-Disposition": "inline",
-        "X-Content-Type-Options": "nosniff",
-        "Access-Control-Allow-Origin": "*",
-
-        // ── Critical: Vary only on Accept-Encoding ────────────────────────────
-        // If Vary includes "Cookie" or "Authorization", Cloudflare treats every
-        // user as unique and NEVER serves from cache. Keep this as-is.
-        "Vary": "Accept-Encoding",
-      },
-    });
-
-  } catch (error) {
-    console.error("Error fetching image:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch image: " + (error as Error).message },
-      { status: 500 }
-    );
+    // Periodically clean expired URL cache entries (1% chance per request)
+    if (Math.random() < 0.01) {
+      for (const [key, value] of urlCache.entries()) {
+        if (isCacheExpired(value.timestamp)) {
+          urlCache.delete(key);
+        }
+      }
+    }
   }
+
+  // KEY FIX: Return a 301 redirect to the real image URL.
+  //
+  // What this means:
+  //   - Vercel origin only processes a tiny URL string lookup (no image bytes)
+  //   - The browser/Cloudflare fetches the image directly from the source CDN
+  //   - Cloudflare caches the final image at the edge after the first request
+  //   - All subsequent requests for the same panel are served by Cloudflare — zero origin transfer
+  //
+  // Cache-Control on the redirect itself tells Cloudflare to cache the redirect too,
+  // so even the 301 response is served from edge after the first hit.
+  return NextResponse.redirect(imageUrl, {
+    status: 301,
+    headers: {
+      "Cache-Control": "public, max-age=31536000, immutable",
+    },
+  });
 }
