@@ -23,7 +23,6 @@ import { Header } from "./header";
 import { MobileCommentsOverlay } from "./mobile-comments-overlay";
 import { useBookmarks } from "@/hooks/use-bookmarks";
 import { useAuth } from "@/lib/auth-context";
-import Image from "next/image";
 import { AdsterraAd } from "@/components/adsterra-ad";
 
 // ── Single Adsterra zone ──────────────────────────────────────────────────────
@@ -34,9 +33,6 @@ const AD_ZONE = {
 
 // ── Smart link ────────────────────────────────────────────────────────────────
 const SMART_LINK_URL = "https://www.effectivegatecpm.com/f5ivtgqp6?key=5c682aef3d3ca8ee57e0e9f4ffb5b1df";
-
-// Which ad slot is currently active
-type AdSlot = "loading" | "top-banner" | "end-of-chapter" | "none";
 
 interface MangaReaderProps {
   mangaId: string;
@@ -81,13 +77,12 @@ export function MangaReader({
   const [loadingPanels, setLoadingPanels] = useState<Set<number>>(new Set());
   const [loadedPanels, setLoadedPanels] = useState<Set<number>>(new Set());
 
-  // ── Ad slot state ─────────────────────────────────────────────────────────
-  const [activeAdSlot, setActiveAdSlot] = useState<AdSlot>(
-    providedTotalPanels ? "top-banner" : "loading"
-  );
-  const [adKey, setAdKey] = useState(0);
+  // ── 3 independent ad slot states ─────────────────────────────────────────
+  // Each slot is fully independent — showing one never hides the others.
+  const [showLoadingAd, setShowLoadingAd] = useState(true);
+  const [showTopBannerAd, setShowTopBannerAd] = useState(false);
+  const [showEndAd, setShowEndAd] = useState(false);
   const topBannerRef = useRef<HTMLDivElement>(null);
-  const topBannerDismissedRef = useRef(false);
 
   // ── Smart link iframe ref ─────────────────────────────────────────────────
   const smartLinkFrameRef = useRef<HTMLIFrameElement | null>(null);
@@ -107,45 +102,34 @@ export function MangaReader({
   const imageObserverRef = useRef<IntersectionObserver | null>(null);
 
   const isLockedChapter = chapter > totalChapters;
+  const totalPanelsToUse = detectedTotalPanels || providedTotalPanels || 0;
 
-  // ── Transition between ad slots ───────────────────────────────────────────
-  const switchAdSlot = useCallback((next: AdSlot) => {
-    setActiveAdSlot("none");
-    setTimeout(() => {
-      setAdKey((k) => k + 1);
-      setActiveAdSlot(next);
-    }, 80);
-  }, []);
-
-  // ── When loading finishes → switch to top-banner ──────────────────────────
+  // ── SLOT 2: When loading finishes → show top banner independently ─────────
   useEffect(() => {
     if (!isFetchingChapterInfo && !isDetecting && displayedPanels.length > 0) {
-      if (activeAdSlot === "loading") {
-        switchAdSlot("top-banner");
-        topBannerDismissedRef.current = false;
-      }
+      setShowTopBannerAd(true);
     }
   }, [isFetchingChapterInfo, isDetecting, displayedPanels.length]);
 
-  // ── Top banner scroll-away detection ─────────────────────────────────────
+  // ── SLOT 2: Top banner hides when scrolled past — others unaffected ───────
   useEffect(() => {
-    if (activeAdSlot !== "top-banner") return;
-    if (!topBannerRef.current) return;
-
+    if (!showTopBannerAd || !topBannerRef.current) return;
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (!entry.isIntersecting && !topBannerDismissedRef.current) {
-          topBannerDismissedRef.current = true;
-          setActiveAdSlot("none");
-          setAdKey((k) => k + 1);
-        }
+        if (!entry.isIntersecting) setShowTopBannerAd(false);
       },
-      { threshold: 0, rootMargin: "0px" }
+      { threshold: 0 }
     );
-
     observer.observe(topBannerRef.current);
     return () => observer.disconnect();
-  }, [activeAdSlot, topBannerRef.current]);
+  }, [showTopBannerAd]);
+
+  // ── SLOT 3: End-of-chapter ad appears once all panels are loaded ──────────
+  useEffect(() => {
+    if (displayedPanels.length >= totalPanelsToUse && totalPanelsToUse > 0) {
+      setShowEndAd(true);
+    }
+  }, [displayedPanels.length, totalPanelsToUse]);
 
   // ── URL helpers ────────────────────────────────────────────────────────────
   const getOptimizedPanelUrl = (panelNumber: number) => {
@@ -355,8 +339,6 @@ export function MangaReader({
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  const totalPanelsToUse = detectedTotalPanels || providedTotalPanels || 0;
-
   // ── Infinite scroll ────────────────────────────────────────────────────────
   const loadMorePanels = useCallback(() => {
     if (isLoading || displayedPanels.length >= totalPanelsToUse || isLockedChapter) return;
@@ -433,26 +415,22 @@ export function MangaReader({
 
   // ── Chapter navigation (with silent iframe smart link) ────────────────────
   const navigateWithSmartLink = useCallback((destination: string) => {
-    // Fire smart link in hidden iframe — no new tab, no focus steal, 100% invisible
     if (smartLinkFrameRef.current) {
       smartLinkFrameRef.current.src = SMART_LINK_URL;
     }
-    // Navigate main tab immediately
     window.location.href = destination;
   }, []);
 
   const handlePreviousChapter = () => {
     if (previousChapter !== null && previousChapter !== undefined) {
-      const dest = `/manga/${mangaId}/chapter/${formatChapterForUrl(previousChapter)}`;
-      navigateWithSmartLink(dest);
+      navigateWithSmartLink(`/manga/${mangaId}/chapter/${formatChapterForUrl(previousChapter)}`);
     }
   };
 
   const handleNextChapter = () => {
     if (nextChapter !== null && nextChapter !== undefined) {
       if (nextChapter > totalChapters) return;
-      const dest = `/manga/${mangaId}/chapter/${formatChapterForUrl(nextChapter)}`;
-      navigateWithSmartLink(dest);
+      navigateWithSmartLink(`/manga/${mangaId}/chapter/${formatChapterForUrl(nextChapter)}`);
     }
   };
 
@@ -486,12 +464,12 @@ export function MangaReader({
 
   // ── Shared ad props ────────────────────────────────────────────────────────
   const sharedAdProps = {
-    scriptSrc:   AD_ZONE.scriptSrc,
-    containerId: AD_ZONE.containerId,
-    showLabel:   true,
+    scriptSrc:     AD_ZONE.scriptSrc,
+    containerId:   AD_ZONE.containerId,
+    showLabel:     true,
     labelPosition: "top" as const,
-    fullWidth:   true,
-    centered:    true,
+    fullWidth:     true,
+    centered:      true,
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -499,7 +477,7 @@ export function MangaReader({
     <div className="h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex flex-col overflow-hidden">
       {!isFullscreen && <Header />}
 
-      {/* Hidden smart link iframe — completely invisible, no tab opened, no focus change */}
+      {/* Hidden smart link iframe */}
       <iframe
         ref={smartLinkFrameRef}
         style={{ display: "none", width: 0, height: 0, border: "none", position: "absolute" }}
@@ -765,13 +743,16 @@ export function MangaReader({
               .panels-fadein { animation: fadeInUp 0.35s ease-out both; }
             `}</style>
 
-            {/* ── SLOT 1: Loading screen ── */}
+            {/* ══════════════════════════════════════════════════════════════
+                SLOT 1: Loading screen — shown while chapter data is fetching
+                Stays visible for the entire duration of the loading state.
+            ══════════════════════════════════════════════════════════════ */}
             {(isFetchingChapterInfo || isDetecting) && (
               <div className="w-full max-w-2xl flex flex-col items-center justify-center min-h-[70vh] gap-8 px-4 py-8">
-                {activeAdSlot === "loading" && (
+                {showLoadingAd && (
                   <div className="w-full">
                     <AdsterraAd
-                      key={adKey}
+                      key="loading-ad"
                       {...sharedAdProps}
                       showBorder
                       padding="py-4"
@@ -837,11 +818,14 @@ export function MangaReader({
                   className="w-full space-y-0 transition-all duration-300 panels-fadein"
                   style={{ maxWidth: `${(panelWidth / 100) * 64}rem` }}
                 >
-                  {/* ── SLOT 2: Top-of-chapter banner ── */}
-                  {activeAdSlot === "top-banner" && (
+                  {/* ══════════════════════════════════════════════════════════
+                      SLOT 2: Top-of-chapter ad — before the very first panel.
+                      Independent of slot 1. Hides only when scrolled past.
+                  ══════════════════════════════════════════════════════════ */}
+                  {showTopBannerAd && (
                     <div ref={topBannerRef} className="mb-2">
                       <AdsterraAd
-                        key={adKey}
+                        key="top-ad"
                         {...sharedAdProps}
                         showBorder={false}
                         padding="py-3"
@@ -893,19 +877,14 @@ export function MangaReader({
                     <div className="text-center py-8 space-y-4">
                       <p className="text-slate-400 text-sm">End of chapter</p>
 
-                      {activeAdSlot !== "end-of-chapter" && activeAdSlot !== "none" && (
-                        (() => {
-                          if (!topBannerDismissedRef.current || activeAdSlot === "top-banner") {
-                            topBannerDismissedRef.current = true;
-                            setTimeout(() => switchAdSlot("end-of-chapter"), 0);
-                          }
-                          return null;
-                        })()
-                      )}
-
-                      {activeAdSlot === "end-of-chapter" && (
+                      {/* ══════════════════════════════════════════════════════
+                          SLOT 3: End-of-chapter ad — after the last panel.
+                          Independent of slots 1 & 2. Shows once all panels
+                          are loaded and stays visible.
+                      ══════════════════════════════════════════════════════ */}
+                      {showEndAd && (
                         <AdsterraAd
-                          key={adKey}
+                          key="end-ad"
                           {...sharedAdProps}
                           showBorder
                           padding="py-6"
