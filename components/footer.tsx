@@ -65,7 +65,7 @@ export function Footer() {
             <ul className="space-y-3 text-sm">
               <li>
                 <Link
-                  href="/donate"
+                  href="https://buymeacoffee.com/luffysfan"
                   className="text-white/60 hover:text-pink-500 transition flex items-center gap-2"
                 >
                   <Heart className="w-3 h-3" />
