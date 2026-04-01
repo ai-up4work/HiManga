@@ -24,6 +24,7 @@ import { MobileCommentsOverlay } from "./mobile-comments-overlay";
 import { useBookmarks } from "@/hooks/use-bookmarks";
 import { useAuth } from "@/lib/auth-context";
 import { AdsterraAd } from "@/components/adsterra-ad";
+import { PopUnderAd } from "@/components/pop-under-ad"; // ← separate file
 
 // ── Single Adsterra zone ──────────────────────────────────────────────────────
 const AD_ZONE = {
@@ -78,7 +79,6 @@ export function MangaReader({
   const [loadedPanels, setLoadedPanels] = useState<Set<number>>(new Set());
 
   // ── 3 independent ad slot states ─────────────────────────────────────────
-  // Each slot is fully independent — showing one never hides the others.
   const [showLoadingAd, setShowLoadingAd] = useState(true);
   const [showTopBannerAd, setShowTopBannerAd] = useState(false);
   const [showEndAd, setShowEndAd] = useState(false);
@@ -477,6 +477,9 @@ export function MangaReader({
     <div className="h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex flex-col overflow-hidden">
       {!isFullscreen && <Header />}
 
+      {/* ── Pop-under ad — injected once on mount, renders nothing visible ── */}
+      <PopUnderAd />
+
       {/* Hidden smart link iframe */}
       <iframe
         ref={smartLinkFrameRef}
@@ -745,7 +748,6 @@ export function MangaReader({
 
             {/* ══════════════════════════════════════════════════════════════
                 SLOT 1: Loading screen — shown while chapter data is fetching
-                Stays visible for the entire duration of the loading state.
             ══════════════════════════════════════════════════════════════ */}
             {(isFetchingChapterInfo || isDetecting) && (
               <div className="w-full max-w-2xl flex flex-col items-center justify-center min-h-[70vh] gap-8 px-4 py-8">
@@ -819,8 +821,7 @@ export function MangaReader({
                   style={{ maxWidth: `${(panelWidth / 100) * 64}rem` }}
                 >
                   {/* ══════════════════════════════════════════════════════════
-                      SLOT 2: Top-of-chapter ad — before the very first panel.
-                      Independent of slot 1. Hides only when scrolled past.
+                      SLOT 2: Top-of-chapter ad
                   ══════════════════════════════════════════════════════════ */}
                   {showTopBannerAd && (
                     <div ref={topBannerRef} className="mb-2">
@@ -878,9 +879,7 @@ export function MangaReader({
                       <p className="text-slate-400 text-sm">End of chapter</p>
 
                       {/* ══════════════════════════════════════════════════════
-                          SLOT 3: End-of-chapter ad — after the last panel.
-                          Independent of slots 1 & 2. Shows once all panels
-                          are loaded and stays visible.
+                          SLOT 3: End-of-chapter ad
                       ══════════════════════════════════════════════════════ */}
                       {showEndAd && (
                         <AdsterraAd
