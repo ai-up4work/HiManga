@@ -19,11 +19,9 @@ interface MangaDetailsPageProps {
 function SkeletonHero() {
   return (
     <div className="animate-pulse">
-      {/* Banner — shorter on mobile */}
       <div className="h-[220px] sm:h-[320px] md:h-[420px] bg-white/10 w-full" />
       <div className="px-4 sm:px-6 lg:px-10 py-6 sm:py-8 space-y-4 bg-[#0a0a1a]">
         <div className="flex gap-4 sm:gap-6">
-          {/* Cover — smaller on mobile, less negative offset */}
           <div className="w-24 sm:w-32 md:w-40 h-36 sm:h-48 md:h-56 rounded-xl bg-white/10 flex-shrink-0 -mt-10 sm:-mt-16 md:-mt-20" />
           <div className="flex-1 space-y-3 pt-1 sm:pt-2 min-w-0">
             <div className="h-6 sm:h-8 bg-white/10 rounded-full w-2/3" />
@@ -47,8 +45,7 @@ function SkeletonHero() {
 
 function SkeletonRelatedCard() {
   return (
-    // Mobile: 140px, sm: 170px, lg: 270px
-    <div className="flex-shrink-0 w-[140px] sm:w-[170px] lg:w-[270px] animate-pulse">
+    <div className="flex-shrink-0 w-[180px] sm:w-[190px] lg:w-[270px] animate-pulse">
       <div className="rounded-xl overflow-hidden bg-white/5 border border-white/10">
         <div className="aspect-[2/3] bg-white/10" />
         <div className="p-2 sm:p-3 space-y-1.5 sm:space-y-2">
@@ -101,7 +98,6 @@ export default function MangaDetailsPage({ params }: MangaDetailsPageProps) {
   const [showRightArrow, setShowRightArrow] = useState(true);
   const [relatedMangaIds, setRelatedMangaIds] = useState<string[]>([]);
   const [isLoadingRelated, setIsLoadingRelated] = useState(true);
-  // Hide arrows on touch devices — they use native swipe
   const [isTouchDevice, setIsTouchDevice] = useState(false);
 
   useEffect(() => {
@@ -126,15 +122,20 @@ export default function MangaDetailsPage({ params }: MangaDetailsPageProps) {
         if (genres.length === 0) return;
 
         const { data: genreData, error: genreError } = await supabase
-          .from("genres").select("id").in("name", genres);
+          .from("genres")
+          .select("id")
+          .in("name", genres);
         if (genreError) throw genreError;
 
         const genreIds = genreData?.map((g) => g.id) || [];
         if (genreIds.length === 0) return;
 
         const { data: mangaGenreData, error: mangaGenreError } = await supabase
-          .from("manga_genres").select("manga_id")
-          .in("genre_id", genreIds).neq("manga_id", id).limit(20);
+          .from("manga_genres")
+          .select("manga_id")
+          .in("genre_id", genreIds)
+          .neq("manga_id", id)
+          .limit(20);
         if (mangaGenreError) throw mangaGenreError;
 
         const uniqueMangaIds = Array.from(
@@ -164,9 +165,13 @@ export default function MangaDetailsPage({ params }: MangaDetailsPageProps) {
 
   const scroll = (direction: "left" | "right") => {
     if (scrollContainerRef.current) {
-      const scrollAmount = 300;
+      // Scroll by ~2 card widths on mobile for better UX
+      const cardWidth = window.innerWidth < 640 ? 172 : window.innerWidth < 1024 ? 202 : 282;
+      const scrollAmount = cardWidth * 2;
       scrollContainerRef.current.scrollTo({
-        left: scrollContainerRef.current.scrollLeft + (direction === "left" ? -scrollAmount : scrollAmount),
+        left:
+          scrollContainerRef.current.scrollLeft +
+          (direction === "left" ? -scrollAmount : scrollAmount),
         behavior: "smooth",
       });
     }
@@ -199,19 +204,20 @@ export default function MangaDetailsPage({ params }: MangaDetailsPageProps) {
         <section className="flex-1 min-w-0">
           <MangaDetailsHero manga={currentManga} />
 
-          {/* Gradient divider — shorter on mobile */}
+          {/* Gradient divider */}
           <div className="h-12 sm:h-20 md:h-24 bg-gradient-to-b from-[#0a0a1a] via-[#0f1729] to-slate-900" />
 
           <div className="bg-slate-900 px-0 py-6 sm:py-8">
-            {/* Removed the -my-10 which caused overlap issues on mobile */}
             <div className="mx-auto max-w-[1600px]">
+
               {/* Section header */}
               <div className="flex items-center gap-2 mb-4 sm:mb-6 px-4 sm:px-6 lg:px-10">
                 <BookOpen className="h-4 w-4 sm:h-5 sm:w-5 text-pink-500 flex-shrink-0" />
                 <h2 className="text-lg sm:text-2xl font-bold text-white">You May Also Like</h2>
                 {relatedMangas.length > 0 && (
                   <span className="text-xs sm:text-sm text-white/60 ml-auto flex-shrink-0">
-                    {relatedMangas.length} {relatedMangas.length === 1 ? "manga" : "mangas"}
+                    {relatedMangas.length}{" "}
+                    {relatedMangas.length === 1 ? "manga" : "mangas"}
                   </span>
                 )}
               </div>
@@ -222,7 +228,7 @@ export default function MangaDetailsPage({ params }: MangaDetailsPageProps) {
                 </div>
               ) : (
                 <div className="relative group">
-                  {/* Arrows hidden on touch devices */}
+                  {/* Left arrow */}
                   {showLeftArrow && !isTouchDevice && (
                     <button
                       onClick={() => scroll("left")}
@@ -232,6 +238,8 @@ export default function MangaDetailsPage({ params }: MangaDetailsPageProps) {
                       <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
                     </button>
                   )}
+
+                  {/* Right arrow */}
                   {showRightArrow && !isTouchDevice && (
                     <button
                       onClick={() => scroll("right")}
@@ -242,6 +250,7 @@ export default function MangaDetailsPage({ params }: MangaDetailsPageProps) {
                     </button>
                   )}
 
+                  {/* Scroll container */}
                   <div
                     ref={scrollContainerRef}
                     onScroll={handleScroll}
@@ -249,16 +258,20 @@ export default function MangaDetailsPage({ params }: MangaDetailsPageProps) {
                   >
                     <div className="flex gap-3 sm:gap-4 lg:gap-6 pr-4 sm:pr-6 lg:pr-10">
                       {relatedMangas.map((relatedManga) => (
-                        // Mobile: 140px, sm: 170px, lg: 270px
+                        // KEY FIX: w-[180px] on mobile (was 140px), sm: 190px, lg: 270px
                         <div
                           key={relatedManga.id}
-                          className="flex-shrink-0 w-[140px] sm:w-[170px] lg:w-[270px]"
+                          className="flex-shrink-0 w-[180px] sm:w-[190px] lg:w-[270px]"
                         >
                           <HorizontalMangaCard manga={relatedManga} />
                         </div>
                       ))}
                     </div>
                   </div>
+
+                  {/* Fade edges to hint at scrollability */}
+                  <div className="pointer-events-none absolute top-0 left-0 h-full w-8 bg-gradient-to-r from-slate-900 to-transparent" />
+                  <div className="pointer-events-none absolute top-0 right-0 h-full w-8 bg-gradient-to-l from-slate-900 to-transparent" />
                 </div>
               )}
             </div>
@@ -269,8 +282,13 @@ export default function MangaDetailsPage({ params }: MangaDetailsPageProps) {
       <Footer />
 
       <style jsx global>{`
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
-        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+        }
+        .scrollbar-hide {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
       `}</style>
     </div>
   );
