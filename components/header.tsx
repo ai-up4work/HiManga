@@ -1,4 +1,3 @@
-// components/header.tsx
 "use client";
 
 import { useAuth } from "@/lib/auth-context";
@@ -21,6 +20,7 @@ import Image from "next/image";
 import { useAvatar } from "@/hooks/useAvatar";
 import { getAvatarUrl } from "@/lib/avatar-utils";
 import { usePathname } from "next/navigation";
+import PWAInstallButton from "@/components/PWAInstallButton";
 
 export function Header() {
   const { user, logout } = useAuth();
@@ -28,7 +28,6 @@ export function Header() {
   const pathname = usePathname();
 
   // Load avatar with proper server sync
-  // Default to 0 for new users (will show /0.png)
   const { avatarId } = useAvatar({
     serverAvatarId: user?.avatarId,
     fallbackAvatarId: 0,
@@ -39,19 +38,14 @@ export function Header() {
   const handleShare = async () => {
     const currentUrl = window.location.href;
 
-    // Generate a better title and description based on the current page
     let title = "HiManga";
     let text = "Check out HiManga - Read manga together!";
 
-    // Customize share text based on the current page
     if (pathname?.includes("/manga/")) {
       if (pathname?.includes("/chapter/")) {
-        // Extract chapter info from URL if possible
         const chapterMatch = pathname.match(/\/chapter\/(\d+)/);
         const chapterNum = chapterMatch ? chapterMatch[1] : "";
-        title = chapterNum
-          ? `Chapter ${chapterNum} - HiManga`
-          : "Reading on HiManga";
+        title = chapterNum ? `Chapter ${chapterNum} - HiManga` : "Reading on HiManga";
         text = chapterNum
           ? `Check out Chapter ${chapterNum} on HiManga!`
           : "Check out this manga on HiManga!";
@@ -78,14 +72,11 @@ export function Header() {
           url: currentUrl,
         });
       } catch (err) {
-        // User cancelled share or error occurred
         if (err instanceof Error && err.name !== "AbortError") {
-          // Fallback to clipboard if share fails
           fallbackCopyToClipboard(currentUrl);
         }
       }
     } else {
-      // Fallback for browsers that don't support Web Share API
       fallbackCopyToClipboard(currentUrl);
     }
   };
@@ -93,13 +84,10 @@ export function Header() {
   const fallbackCopyToClipboard = async (url: string) => {
     try {
       await navigator.clipboard.writeText(url);
-      // You could add a toast notification here
       alert("Link copied to clipboard!");
     } catch (err) {
       console.error("Failed to copy link:", err);
-      alert(
-        "Failed to copy link. Please copy it manually from the address bar."
-      );
+      alert("Failed to copy link. Please copy it manually from the address bar.");
     }
   };
 
@@ -131,7 +119,7 @@ export function Header() {
             </span>
           </Link>
 
-          {/* Desktop Navigation - Only on large screens (1024px+) */}
+          {/* Desktop Navigation */}
           <nav className="hidden xl:flex items-center gap-6 2xl:gap-8">
             <Link
               href="/"
@@ -140,7 +128,7 @@ export function Header() {
               <Home className="w-4 h-4 group-hover:scale-110 transition-transform duration-300" />
               <span>Home</span>
             </Link>
-             <Link
+            <Link
               href="/trending"
               className="flex items-center gap-2 text-white/70 hover:text-pink-500 transition-colors duration-300 font-semibold group"
             >
@@ -154,7 +142,6 @@ export function Header() {
               <Library className="w-4 h-4 group-hover:scale-110 transition-transform duration-300" />
               <span>Library</span>
             </Link>
-           
             <Link
               href="/news"
               className="flex items-center gap-2 text-white/70 hover:text-pink-500 transition-colors duration-300 font-semibold group"
@@ -166,22 +153,25 @@ export function Header() {
 
           {/* Right Section */}
           <div className="flex items-center gap-2 md:gap-4">
-            {/* Share Button - Desktop */}
+            {/* Desktop Share Button */}
             <button
               onClick={handleShare}
               className="hidden sm:flex items-center gap-2 text-white/70 hover:text-pink-500 transition-colors duration-300 px-3 py-2 rounded-full hover:bg-white/5 group"
               title="Share this page"
             >
               <Share2 className="w-4 h-4 group-hover:scale-110 transition-transform duration-300" />
-              <span className="hidden xl:inline text-sm font-medium">
-                Share
-              </span>
+              <span className="hidden xl:inline text-sm font-medium">Share</span>
             </button>
+
+            {/* PWA Install Button – Desktop & Tablet */}
+            <PWAInstallButton
+              className="hidden sm:flex h-8 px-3 py-1 text-xs font-medium rounded-full hover:scale-[1.02] transition-all"
+            />
 
             {/* Notifications */}
             {user && <NotificationsPanel userId={user.id} />}
 
-            {/* Desktop Auth Section - Only on extra large screens */}
+            {/* Desktop Auth */}
             <div className="hidden xl:flex items-center gap-3">
               {user ? (
                 <>
@@ -234,7 +224,7 @@ export function Header() {
               )}
             </div>
 
-            {/* Mobile/Tablet Menu Button - Shows on all devices below 1280px */}
+            {/* Mobile Menu Button */}
             <button
               onClick={() => setIsMenuOpen(!isMenuOpen)}
               className="xl:hidden text-white hover:text-pink-500 transition-colors duration-300 p-1.5 sm:p-2 z-50 hover:bg-white/5 rounded-lg"
@@ -250,7 +240,7 @@ export function Header() {
         </div>
       </div>
 
-      {/* Mobile/Tablet Menu Overlay - Shows up to 1280px */}
+      {/* Mobile Overlay */}
       {isMenuOpen && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 xl:hidden"
@@ -258,14 +248,14 @@ export function Header() {
         />
       )}
 
-      {/* Mobile/Tablet Menu Drawer - Shows up to 1280px */}
+      {/* Mobile/Tablet Menu Drawer */}
       <div
         className={`fixed top-[73px] right-0 w-full sm:w-96 md:w-[400px] h-[calc(100dvh-73px)] bg-[#0a0a1a]/95 backdrop-blur-xl border-l border-white/10 transform transition-transform duration-300 ease-in-out z-40 xl:hidden ${
           isMenuOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
         <div className="flex flex-col h-full">
-          {/* User Section - Mobile/Tablet */}
+          {/* User Section */}
           {user && (
             <div className="border-b border-white/10 p-4 sm:p-6">
               <Link
@@ -293,7 +283,7 @@ export function Header() {
             </div>
           )}
 
-          {/* Navigation Links - Mobile/Tablet */}
+          {/* Navigation Links */}
           <nav className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-2">
             <Link
               href="/"
@@ -328,7 +318,7 @@ export function Header() {
               <span>News</span>
             </Link>
 
-            {/* Share Button - Mobile/Tablet */}
+            {/* Share Button - Mobile */}
             <button
               onClick={() => {
                 handleShare();
@@ -339,6 +329,13 @@ export function Header() {
               <Share2 className="w-5 h-5" />
               <span>Share Page</span>
             </button>
+
+            {/* Install app inside mobile menu */}
+            <div className="px-4 py-2">
+              <PWAInstallButton
+                className="w-full h-10 text-sm font-medium rounded-xl backdrop-blur-md"
+              />
+            </div>
           </nav>
 
           {/* Auth Buttons - Mobile/Tablet */}

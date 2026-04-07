@@ -6,6 +6,8 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import { AuthProvider } from "@/lib/auth-context";
 import { NotificationsProvider } from "@/lib/notifications-context";
 import PWAInstall from "./pwa-install";
+import PWAInstallButton from '@/components/PWAInstallButton';
+
 import "./globals.css";
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -98,7 +100,7 @@ export const metadata: Metadata = {
 // ✅ FIXED: Renamed to generateManifest()
 export function generateManifest(): MetadataRoute.Manifest {
   return {
-    theme_color: "#8936FF",
+    theme_color: "#8936FF",  
     background_color: "#2EC6FE",
     icons: [
       { purpose: "maskable", sizes: "512x512", src: "/icon512_maskable.png", type: "image/png" },
