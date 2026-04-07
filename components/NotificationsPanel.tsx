@@ -20,10 +20,62 @@ export function NotificationsPanel() {
   const [loading, setLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [subscribed, setSubscribed] = useState(false);
+  const [permission, setPermission] = useState<NotificationPermission>('default');
 
   useEffect(() => {
     fetchNotifications();
+    checkPushSubscription();
   }, []);
+
+  // Push notification functions
+  const urlBase64ToUint8Array = (base64String: string) => {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding)
+      .replace(/\-/g, '+')
+      .replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)));
+  };
+
+  const subscribePush = async () => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') return;
+
+      setPermission(perm);
+      
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(
+          process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!
+        )
+      });
+
+      // Save subscription to backend
+      await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(subscription)
+      });
+
+      setSubscribed(true);
+    } catch (error) {
+      console.error('Push subscription failed:', error);
+    }
+  };
+
+  const checkPushSubscription = async () => {
+    if (!('serviceWorker' in navigator)) return;
+    
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+    setSubscribed(!!subscription);
+    setPermission(Notification.permission);
+  };
 
   const fetchNotifications = async () => {
     try {
@@ -108,7 +160,7 @@ export function NotificationsPanel() {
           <div
             className="fixed inset-0 z-40"
             onClick={() => setIsOpen(false)}
-          ></div>
+          />
 
           {/* Panel */}
           <div className="absolute right-0 mt-2 w-96 max-h-[600px] bg-slate-900 border border-slate-700 rounded-lg shadow-2xl z-50 flex flex-col">
@@ -117,14 +169,30 @@ export function NotificationsPanel() {
               <h3 className="font-semibold text-lg text-slate-100">
                 Notifications
               </h3>
-              {unreadCount > 0 && (
+              
+              {/* Push Notifications Toggle */}
+              <div className="flex items-center gap-2">
+                {unreadCount > 0 && (
+                  <button
+                    onClick={markAllAsRead}
+                    className="text-xs text-cyan-400 hover:text-cyan-300"
+                  >
+                    Mark all read
+                  </button>
+                )}
                 <button
-                  onClick={markAllAsRead}
-                  className="text-xs text-cyan-400 hover:text-cyan-300"
+                  onClick={subscribePush}
+                  disabled={subscribed}
+                  className={`text-xs px-3 py-1 rounded-full flex items-center gap-1 transition-all ${
+                    subscribed
+                      ? 'bg-emerald-500/20 text-emerald-200'
+                      : 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200'
+                  }`}
+                  title="Enable push notifications (works when app closed)"
                 >
-                  Mark all as read
+                  {subscribed ? '🔔 Active' : '🔔 Enable'}
                 </button>
-              )}
+              </div>
             </div>
 
             {/* Notifications List */}
@@ -137,7 +205,12 @@ export function NotificationsPanel() {
               ) : notifications.length === 0 ? (
                 <div className="p-8 text-center">
                   <Bell className="w-12 h-12 text-slate-600 mx-auto mb-2" />
-                  <p className="text-sm text-slate-400">No notifications yet</p>
+                  <p className="text-sm text-slate-400">
+                    {subscribed 
+                      ? 'Push notifications enabled! You\'ll get alerts for new chapters.' 
+                      : 'No notifications yet. Enable push above!'
+                    }
+                  </p>
                 </div>
               ) : (
                 <div className="divide-y divide-slate-800">

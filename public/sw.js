@@ -31,3 +31,26 @@ self.addEventListener('notificationclick', (event) => {
     clients.openWindow(event.notification.data?.url || '/')
   );
 });
+
+self.addEventListener('push', event => {
+  const data = event.data?.json() || { 
+    title: 'HiManga', 
+    body: 'New chapter available!' 
+  };
+  
+  event.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: '/icon512_maskable.png',
+      badge: '/icon512_rounded.png',
+      vibrate: [100, 50, 100],
+      data: { url: data.url || '/' },
+      actions: [{ action: 'read', title: 'Read Now' }]
+    })
+  );
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  clients.openWindow(event.notification.data?.url || '/');
+});
