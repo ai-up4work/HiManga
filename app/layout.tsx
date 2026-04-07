@@ -1,20 +1,17 @@
 import type React from "react";
-import type { Metadata } from "next";
+import type { Metadata, MetadataRoute } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { AuthProvider } from "@/lib/auth-context";
 import { NotificationsProvider } from "@/lib/notifications-context";
+import PWAInstall from "./pwa-install";
 import "./globals.css";
 
 const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 const baseUrl = "https://himanga.fun";
-
-// ── Monetag Zone IDs ──────────────────────────────────────────────────────────
-// NEXT_PUBLIC_MONETAG_GLOBAL_ZONE_ID → fires on ALL pages (add new zone in Monetag dashboard)
-// NEXT_PUBLIC_MONETAG_ZONE_ID        → fires on chapter pages only (via sidebar)
 const globalZoneId = process.env.NEXT_PUBLIC_MONETAG_GLOBAL_ZONE_ID;
 
 export const metadata: Metadata = {
@@ -98,6 +95,28 @@ export const metadata: Metadata = {
   },
 };
 
+// ✅ FIXED: Renamed to generateManifest()
+export function generateManifest(): MetadataRoute.Manifest {
+  return {
+    theme_color: "#8936FF",
+    background_color: "#2EC6FE",
+    icons: [
+      { purpose: "maskable", sizes: "512x512", src: "/icon512_maskable.png", type: "image/png" },
+      { purpose: "any", sizes: "512x512", src: "/icon512_rounded.png", type: "image/png" },
+    ],
+    orientation: "any",
+    display: "standalone",
+    dir: "auto",
+    lang: "en-US",
+    name: "HiManga",
+    short_name: "HiManga",
+    start_url: "/",
+    scope: "/",
+    description: "Discover and read your favorite manga with a beautiful, anime-inspired interface. Thousands of manga titles, infinite scroll, and community discussions.",
+    id: "hi-manga",
+  };
+}
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -112,7 +131,7 @@ export default function RootLayout({
             dangerouslySetInnerHTML={{
               __html: `(function(s){s.dataset.zone='10662299',s.src='https://nap5k.com/tag.min.js'})([document.documentElement, document.body].filter(Boolean).pop().appendChild(document.createElement('script')))`,
             }}
-/>
+          />
         )} */}
 
         {/* Explicit meta tags for WhatsApp */}
@@ -167,9 +186,10 @@ export default function RootLayout({
           data-y_margin="18"
         />
       </head>
-      <body className="font-sans antialiased overflow-x-hidden w-full max-w-[100vw]">
+      <body className={`${_geist.variable} ${_geistMono.variable} font-sans antialiased overflow-x-hidden w-full max-w-[100vw]`}>
         <AuthProvider>
           <NotificationsProvider>
+            <PWAInstall />
             <div className="overflow-x-hidden w-full">{children}</div>
             <Analytics />
             <SpeedInsights />
