@@ -52,7 +52,7 @@ export async function GET(request: Request) {
     } else if (sortBy === "rating") {
       query = query.order("average_rating", { ascending: false });
     } else if (sortBy === "views") {
-      query = query.order("total_views", { ascending: false });
+      query = query.order("total_reads", { ascending: false });
     } else if (sortBy === "recent") {
       query = query.order("created_at", { ascending: false });
     }
