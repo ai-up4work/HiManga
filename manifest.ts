@@ -17,6 +17,19 @@ export default function manifest(): MetadataRoute.Manifest {
         src: 'icon512_rounded.png',
         type: 'image/png',
       },
+       // ✅ Add these:
+      {
+        purpose: 'any',
+        sizes: '192x192',
+        src: '/icon192_rounded.png',
+        type: 'image/png',
+      },
+      {
+        purpose: 'maskable',
+        sizes: '192x192',
+        src: '/icon192_maskable.png',
+        type: 'image/png',
+      },
     ],
     orientation: 'any',
     display: 'standalone',
