@@ -46,7 +46,7 @@ export function TrendingSection() {
   const [visibleCount, setVisibleCount] = useState(10);
 
   useEffect(() => {
-    fetch("/api/trending?page=0&pageSize=50&sortBy=views")
+    fetch("/api/trending?page=0&pageSize=50&sortBy=fame")
       .then((r) => r.json())
       .then((data) => setAllMangas(data.mangas ?? []))
       .catch((err) => console.error("TrendingSection fetch error:", err))
